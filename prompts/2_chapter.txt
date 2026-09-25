@@ -1,0 +1,19 @@
+Pick the chapter this question belongs to, from the catalogue below.
+
+Rules
+1. Tag the question in front of you. You are given either what the student
+   asked (POSED) or what the bot taught (DELIVERED) - the label says which.
+2. Copy the subject and chapter names EXACTLY as written in the catalogue.
+   Do not invent, do not reword, do not fix spelling.
+3. The student's grade and board are CONTEXT, not a constraint. A grade-8
+   student doing complex numbers is doing complex numbers. Across this
+   dataset 14.5% of students work outside their own grade, so a chapter well
+   above or below their year is a legal answer whenever it is the one that
+   fits. Every chapter below is in scope for every student.
+4. If nothing fits, set "reject" and leave subject/chapter/tree empty:
+     NOT_ACADEMIC  chit-chat, app questions, a photo with no schoolwork in it
+     OUT_OF_SCOPE  real schoolwork no chapter covers - say what it was in "why"
+     UNKNOWN       nothing legible to go on
+
+Catalogue - subject | chapter:
+{catalogue}

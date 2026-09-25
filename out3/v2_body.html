@@ -1,0 +1,238 @@
+
+<div class="wrap">
+
+  <div class="facts" id="facts"></div>
+
+  <section>
+    <div class="sechead">
+      <h2>Where every conversation ended up</h2>
+      <p>Segments are labelled with their counts &mdash; the colours only separate them.</p>
+    </div>
+    <div class="stack" id="stack"></div>
+    <div class="legend" id="legend"></div>
+    <p class="note" style="margin-top:20px"><b>43 of the 241</b> cover more than one topic, and <b>12</b> cross into a second chapter. The tag above is the one the chapter that carries the bulk of the conversation &mdash; every other topic the conversation touched is kept alongside it, and the mapping below can count either way.</p>
+    <p class="note" style="margin-top:14px">The profile now answers for every student: <b>all 271</b> carry a grade, board and target, where the value captured on the conversation was missing on 46, 56 and 47 of them. Nothing is tagged &ldquo;grade unknown&rdquo; any more.</p>
+  </section>
+
+  <section class="cols">
+    <div class="panel">
+      <h3>Subject</h3>
+      <p class="eyebrow" style="margin-top:6px">Conversations placed on the tree</p>
+      <div class="bars" id="subjects"></div>
+    </div>
+    <div class="panel">
+      <h3>Tree</h3>
+      <p class="eyebrow" style="margin-top:6px">Nine busiest of the 21 used</p>
+      <div class="bars" id="trees"></div>
+    </div>
+  </section>
+
+  <section class="cols">
+    <div class="panel">
+      <h3>Exam target</h3>
+      <p class="eyebrow" style="margin-top:6px">From the student profile, all 271</p>
+      <div class="bars" id="targets"></div>
+    </div>
+    <div class="panel">
+      <h3>Board</h3>
+      <p class="eyebrow" style="margin-top:6px">From the student profile, all 271</p>
+      <div class="bars" id="boards"></div>
+      <p class="note" style="margin-top:18px"><b>STATE</b> does not say which state. For the 119 conversations whose board is STATE, OTHERS, NA or IB, the profile names no tree &mdash; the CBSE and NCERT backbone carries them.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead">
+      <h2>The twenty busiest topics</h2>
+      <p>Ranked at the exact node by every conversation that touched it. <b>Tagged</b> counts only conversations whose primary tag is this node; <b>touched</b> adds the ones that covered it alongside something else.</p>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th></th><th>Tree</th><th>Topic</th><th>Chapter</th><th></th><th style="text-align:right">Tagged</th><th style="text-align:right">Touched</th></tr></thead>
+        <tbody id="topics"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead">
+      <h2>What each tree actually got</h2>
+      <p>Every topic node that was hit, under the tree it belongs to. <b>Primary tag</b> gives each conversation one node; <b>everything covered</b> gives it all the nodes it actually went through.</p>
+    </div>
+    <div class="findbar">
+      <span class="seg">
+        <button type="button" id="mTopic" aria-pressed="true">By topic</button>
+        <button type="button" id="mConv" aria-pressed="false">By conversation</button>
+      </span>
+      <span class="seg" id="cntSeg">
+        <button type="button" id="cPrim" aria-pressed="true">Primary tag</button>
+        <button type="button" id="cAll" aria-pressed="false">Everything covered</button>
+      </span>
+      <input type="search" id="q" placeholder="6_CBSE, Fractions, Probability Distributions, NEET&hellip;" aria-label="Search the mapping">
+      <span class="hits" id="hits"></span>
+      <button type="button" id="reset">Reset</button>
+    </div>
+    <div class="scroller">
+      <table><thead id="mapHead"></thead><tbody id="map"></tbody></table>
+    </div>
+  </section>
+
+</div>
+
+<div id="tip"></div>
+
+<script>
+const D = __DATA__;
+const TOTAL = 271, esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const $ = id => document.getElementById(id);
+
+$("facts").innerHTML = D.facts.map(([n, k]) =>
+  `<div class="fact"><div class="n">${n}</div><div class="k">${k}</div></div>`).join("");
+
+$("stack").innerHTML = D.outcome.map(([name, n, tok]) =>
+  `<div style="flex:${n};background:var(${tok})" data-tip="${esc(name)} · ${n} of ${TOTAL} · ${(100*n/TOTAL).toFixed(1)}%">
+     ${n >= 13 ? `<span class="lab">${n}</span>` : ""}</div>`).join("");
+$("legend").innerHTML = D.outcome.map(([name, n, tok]) =>
+  `<span><i style="background:var(${tok})"></i>${esc(name)} <b>${n}</b></span>`).join("");
+
+function bars(id, rows, unit, mono) {
+  const max = Math.max(...rows.map(r => r[1])), tot = rows.reduce((a, r) => a + r[1], 0);
+  $(id).innerHTML = rows.map(([name, n]) => `
+    <div class="bar" data-tip="${esc(name)} · ${n} ${unit} · ${(100*n/tot).toFixed(1)}% of ${tot}">
+      <div class="name${mono ? " m" : ""}">${esc(name)}</div>
+      <div class="track"><div class="fill" style="width:${(100*n/max).toFixed(2)}%"></div></div>
+      <div class="v">${n}</div>
+    </div>`).join("");
+}
+bars("subjects", D.subjects, "conversations", false);
+bars("trees", D.trees, "conversations", true);
+bars("targets", D.targets, "conversations", false);
+bars("boards", D.boards, "conversations", false);
+
+const tmaxTopic = D.topics[0][4];
+$("topics").innerHTML = D.topics.map(([tree, tp, ch, nPrim, nAll], i) => `
+  <tr data-tip="${esc(tp)} · ${esc(ch)} · ${esc(tree)} · tagged ${nPrim}, touched ${nAll}">
+    <td class="rank">${String(i + 1).padStart(2, "0")}</td>
+    <td class="tree">${esc(tree)}</td>
+    <td class="ch">${esc(tp)}</td>
+    <td class="subj">${esc(ch)}</td>
+    <td class="spark"><div style="width:${(100*nAll/tmaxTopic).toFixed(2)}%"></div></td>
+    <td class="n dim">${nPrim}</td>
+    <td class="n">${nAll}</td>
+  </tr>`).join("");
+
+/* the mapping — grouped by tree, or one row per conversation */
+const F = ["cid","uid","subject","chapter","topic","level","tree","conf","grade","board","target","ex","nTop","allCh","allTp","multi"];
+const ROWS = D.rows.map(a => Object.fromEntries(F.map((k, i) => [k, a[i]])));
+const OFF = new Set(["NOT_ACADEMIC", "OUT_OF_SCOPE", "UNKNOWN"]);
+const TMAX = Math.max(...D.TREEMAP.all.flatMap(t => t.rows.map(r => r[4])));
+const HEADS = {
+  topic: `<tr><th>Chapter</th><th>Topic</th><th></th><th style="text-align:right">Convs</th></tr>`,
+  conv:  `<tr><th>Subject &rsaquo; chapter &rsaquo; topic</th><th>Tree</th><th>Student</th><th></th></tr>`,
+  convAll: `<tr><th>Subject &rsaquo; chapter &rsaquo; topic</th><th>Also covered</th><th>Tree</th><th></th></tr>`
+};
+let q = "", mode = "topic", count = "primary";
+const hit = hay => !q || q.split(/\s+/).every(t => hay.includes(t));
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+const nothing = `<tr><td colspan="4" style="padding:34px 0;text-align:center;color:var(--ink-3)">Nothing matches that search.</td></tr>`;
+
+function renderTopic() {
+  let html = "", shown = 0;
+  for (const t of D.TREEMAP[count]) {
+    const rows = t.rows.filter(r => hit([t.tree, r[0], r[1], r[2]].join(" ").toLowerCase()));
+    if (!rows.length) continue;
+    shown += rows.reduce((a, r) => a + r[4], 0);
+    html += `<tr class="tband"><td colspan="4"><span class="tn">${esc(t.tree)}</span>` +
+            `<span class="ts">${plural(t.convs, "conversation")} &middot; ${plural(t.nChapters, "chapter")} &middot; ${plural(t.nTopics, "topic")}</span></td></tr>`;
+    html += rows.map(([subj, chap, topic, lvl, n]) => `
+      <tr data-tip="${esc(t.tree)} · ${esc(chap)} · ${esc(topic === "CHAPTER_ONLY" ? "no node fits" : topic)} · ${plural(n, "conversation")}">
+        <td class="chap">${esc(chap)}<br><em>${esc(subj)}</em></td>
+        <td class="topic">${topic === "CHAPTER_ONLY"
+          ? `<span class="none">no node fits</span>`
+          : `<b>${esc(topic)}</b>${lvl === "S" ? `<span class="sub">sub-topic</span>` : ""}`}</td>
+        <td class="spark"><div style="width:${(100 * n / TMAX).toFixed(2)}%"></div></td>
+        <td class="n">${n}</td>
+      </tr>`).join("");
+  }
+  const un = D.UNPLACED.filter(u => hit([u[0], u[1]].join(" ").toLowerCase()));
+  if (un.length) {
+    const tot = un.reduce((a, u) => a + u[2], 0);
+    shown += tot;
+    html += `<tr class="tband"><td colspan="4"><span class="tn">no tree</span>` +
+            `<span class="ts">${plural(tot, "conversation")} not placed</span></td></tr>`;
+    html += un.map(([kind, why, n]) => `
+      <tr data-tip="${esc(kind.replace(/_/g, " ").toLowerCase())} · ${plural(n, "conversation")}">
+        <td class="chap">${esc(kind.replace(/_/g, " ").toLowerCase())}</td>
+        <td class="topic"><span class="none">${esc(why)}</span></td>
+        <td class="spark"><div style="width:${(100 * n / TMAX).toFixed(2)}%"></div></td>
+        <td class="n">${n}</td>
+      </tr>`).join("");
+  }
+  const cap = count === "primary" ? TOTAL : D.N.recorded + D.N.chonly;
+  $("hits").textContent = (q ? `${shown} of ${cap}` : `all ${cap}`) +
+    (count === "primary" ? "" : " topic records");
+  $("map").innerHTML = html || nothing;
+}
+
+function renderConv() {
+  const all = count === "all";
+  let rows = ROWS.filter(r => hit([r.subject, r.chapter, r.topic, r.tree, r.cid, r.uid, r.board, r.target,
+                                   r.allCh, r.allTp, "grade " + r.grade].join(" ").toLowerCase()));
+  if (all) rows = rows.filter(r => r.multi === "Y");
+  const cap = all ? ROWS.filter(r => r.multi === "Y").length : ROWS.length;
+  $("hits").textContent = (rows.length === cap ? `all ${cap}` : `${rows.length} of ${cap}`) +
+    (all ? " multi-topic" : "");
+  $("map").innerHTML = rows.length ? rows.map(r => {
+    const off = OFF.has(r.subject);
+    const others = (r.allTp || "").split("|").filter(t => t && t !== r.topic);
+    const chs = (r.allCh || "").split("|").filter(Boolean);
+    const path = off
+      ? `<span class="chap">${esc(r.subject.replace(/_/g, " ").toLowerCase())}</span> &mdash; ${esc(r.chapter)}`
+      : `<span class="chap">${esc(r.subject)} &rsaquo; ${esc(r.chapter)} &rsaquo;</span> ` +
+        (r.topic === "CHAPTER_ONLY" ? `<span class="none">no node fits</span>`
+          : `<b>${esc(r.topic)}</b>${r.level === "S" ? `<span class="sub">sub-topic</span>` : ""}`);
+    const tip = `conv ${r.cid} · ${plural(r.ex, "exchange")}` +
+                (r.nTop > 1 ? ` · ${plural(r.nTop, "topic")}` : "") +
+                (chs.length > 1 ? ` across ${plural(chs.length, "chapter")}` : "");
+    const second = all
+      ? `<td class="also">${others.length ? others.map(esc).join("<br>") : "&mdash;"}${
+           chs.length > 1 ? `<br><span class="mflag">${chs.length} chapters</span>` : ""}</td>
+         <td class="tree">${esc(r.tree)}</td>`
+      : `<td class="tree">${off ? "&mdash;" : esc(r.tree)}</td>
+         <td class="who">grade ${esc(r.grade)} · ${esc(r.board)}<br>${esc(r.target)}</td>`;
+    return `<tr class="${off ? "off " : ""}cf-${r.conf}" data-tip="${esc(tip)}">
+      <td class="topic">${path}${!all && r.multi === "Y" ? ` <span class="mflag">${chs.length > 1 ? chs.length + " chapters" : "+" + (r.nTop - 1)}</span>` : ""}</td>
+      ${second}
+      <td class="cf">${off ? "" : `<i>${r.conf}</i>`}</td>
+    </tr>`;
+  }).join("") : nothing;
+}
+
+function render() {
+  $("mapHead").innerHTML = mode === "conv" && count === "all" ? HEADS.convAll : HEADS[mode];
+  $("mTopic").setAttribute("aria-pressed", String(mode === "topic"));
+  $("mConv").setAttribute("aria-pressed", String(mode === "conv"));
+  $("cPrim").setAttribute("aria-pressed", String(count === "primary"));
+  $("cAll").setAttribute("aria-pressed", String(count === "all"));
+  mode === "topic" ? renderTopic() : renderConv();
+}
+$("mTopic").addEventListener("click", () => { mode = "topic"; render(); });
+$("mConv").addEventListener("click", () => { mode = "conv"; render(); });
+$("cPrim").addEventListener("click", () => { count = "primary"; render(); });
+$("cAll").addEventListener("click", () => { count = "all"; render(); });
+$("q").addEventListener("input", e => { q = e.target.value.trim().toLowerCase(); render(); });
+$("reset").addEventListener("click", () => { q = ""; $("q").value = ""; render(); });
+render();
+
+const tip = $("tip");
+addEventListener("pointermove", e => {
+  const host = e.target.closest("[data-tip]");
+  if (!host) { tip.style.opacity = 0; return; }
+  tip.textContent = host.dataset.tip;
+  tip.style.opacity = 1;
+  const w = tip.offsetWidth;
+  tip.style.left = Math.min(Math.max(8, e.clientX + 14), innerWidth - w - 8) + "px";
+  tip.style.top = (e.clientY - 34) + "px";
+});
+addEventListener("pointerleave", () => tip.style.opacity = 0);
+</script>

@@ -1,0 +1,117 @@
+
+<div class="wrap">
+
+<header style="display:flex;flex-direction:column;gap:13px">
+  <p class="eyebrow">Vedantu · Snap-and-Ask · 20 September 2026</p>
+  <h1>Every conversation, placed on the topic tree</h1>
+  <p class="lede">271 tutoring conversations from one day, each tagged to a single subject, chapter and exact topic node. Tagged from nine input parameters: who the student is, what they sent, what the bot answered, the bot's own coverage notes, and the grade, board and target on their profile.</p>
+  <div class="figs" id="figs"></div>
+</header>
+
+<div class="bar">
+  <div class="searchrow">
+    <input type="search" id="q" placeholder="Search topic, chapter, tree, conversation or user id…" aria-label="Search the mapping">
+    <span class="count" id="count"></span>
+    <button class="chip" id="reset" type="button">Reset</button>
+  </div>
+  <div class="chips" id="subjects"></div>
+  <div class="chips" id="flags"></div>
+</div>
+
+<div class="list" id="list"></div>
+
+<footer>
+  <p>Subject, chapter and topic are copied exactly from <code>topictree</code>; the tree column names which of the 73 trees carries that chapter. Confidence is <b>HIGH</b> where the bot's own note states the chapter's content outright, <b>MED</b> where it was inferred from worked examples or the student's words, <b>LOW</b> where it is a guess.</p>
+  <p>Grade, board and target come from the central student profile, joined on <code>user_id</code>. They rank the candidate trees but never restrict them — 14.5% of these students were working above or below their own grade.</p>
+</footer>
+
+</div>
+
+<script>
+const D = __DATA__;
+const F = ["cid","uid","subject","chapter","topic","level","tree","conf","grade","board","target","ex","note"];
+const R = D.r.map(a => Object.fromEntries(F.map((k, i) => [k, a[i]])));
+const S = D.s;
+const OFF = new Set(["NOT_ACADEMIC", "OUT_OF_SCOPE", "UNKNOWN"]);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const el = id => document.getElementById(id);
+
+el("figs").innerHTML = [
+  [S.convs, "conversations", 0], [S.users, "students", 0],
+  [S.exact, "with an exact topic", 1], [S.topics, "distinct topic nodes", 0],
+  [S.chapters, "chapters", 0], [S.trees, "trees used", 0]
+].map(([n, l, k]) => `<span class="fig${k ? " k" : ""}"><b>${n}</b><span>${l}</span></span>`).join("");
+
+const state = { q: "", subject: null, flag: null };
+
+el("subjects").innerHTML = S.bySubject
+  .map(([s, n]) => `<button class="chip" type="button" data-subject="${esc(s)}" aria-pressed="false">${esc(s)}<b>${n}</b></button>`).join("");
+el("flags").innerHTML = [
+  ["exact", "Exact topic", S.exact], ["chapter", "Chapter only", S.chapterOnly],
+  ["HIGH", "High confidence", S.conf.HIGH], ["MED", "Medium", S.conf.MED], ["LOW", "Low", S.conf.LOW],
+  ["SUB_TOPIC", "Sub-topic level", S.level.SUB_TOPIC],
+  ["unmapped", "Not on the tree", S.convs - S.tagged]
+].map(([k, l, n]) => `<button class="chip" type="button" data-flag="${k}" aria-pressed="false">${l}<b>${n}</b></button>`).join("");
+
+function matches(r) {
+  if (state.subject && r.subject !== state.subject) return false;
+  const off = OFF.has(r.subject);
+  if (state.flag === "exact" && (off || r.topic === "CHAPTER_ONLY")) return false;
+  if (state.flag === "chapter" && r.topic !== "CHAPTER_ONLY") return false;
+  if (state.flag === "unmapped" && !off) return false;
+  if (state.flag === "SUB_TOPIC" && r.level !== "S") return false;
+  if (["HIGH","MED","LOW"].includes(state.flag) && (off || r.conf !== state.flag)) return false;
+  if (!state.q) return true;
+  const hay = [r.subject, r.chapter, r.topic, r.tree, r.cid, r.uid, r.board, r.target, r.note].join(" ").toLowerCase();
+  return state.q.split(/\s+/).every(t => hay.includes(t));
+}
+
+function render() {
+  const rows = R.filter(matches);
+  el("count").textContent = rows.length === R.length ? `all ${R.length}` : `${rows.length} of ${R.length}`;
+  el("list").innerHTML = rows.length ? rows.map(r => {
+    const off = OFF.has(r.subject);
+    const topic = off ? "" : (r.topic === "CHAPTER_ONLY"
+      ? `<span class="t none">no node fits</span>`
+      : `<span class="t">${esc(r.topic)}</span>${r.level === "S" ? ` <span class="sep">sub-topic</span>` : ""}`);
+    const path = off
+      ? `<span class="c">${esc(r.chapter)}</span>`
+      : `<span class="s">${esc(r.subject)}</span><span class="sep">›</span><span class="c">${esc(r.chapter)}</span><span class="sep">›</span>${topic}`;
+    return `<article class="row${off ? " off" : ""}">
+      <div class="path">${path}</div>
+      <div class="side">
+        <span class="tag ${off ? "t-off" : "t-" + r.conf}">${off ? esc(r.subject.replace(/_/g, " ")) : r.conf}</span>
+        ${off ? "" : `<span class="tree">${esc(r.tree)}</span>`}
+      </div>
+      <div class="meta">
+        <span class="who">grade ${esc(r.grade)} · ${esc(r.board)} · ${esc(r.target)}</span>
+        <span>${r.ex} exchange${r.ex === 1 ? "" : "s"}</span>
+        <span>conv ${esc(r.cid)}</span>
+        <span>user …${esc(r.uid.slice(-6))}</span>
+      </div>
+      ${r.note ? `<p class="note">${esc(r.note)}</p>` : ""}
+    </article>`;
+  }).join("") : `<p class="empty">Nothing matches that filter.</p>`;
+}
+
+function setPressed(container, attr, value) {
+  container.querySelectorAll("button.chip").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset[attr] === value)));
+}
+el("subjects").addEventListener("click", e => {
+  const b = e.target.closest("button.chip"); if (!b) return;
+  state.subject = state.subject === b.dataset.subject ? null : b.dataset.subject;
+  setPressed(el("subjects"), "subject", state.subject); render();
+});
+el("flags").addEventListener("click", e => {
+  const b = e.target.closest("button.chip"); if (!b) return;
+  state.flag = state.flag === b.dataset.flag ? null : b.dataset.flag;
+  setPressed(el("flags"), "flag", state.flag); render();
+});
+el("q").addEventListener("input", e => { state.q = e.target.value.trim().toLowerCase(); render(); });
+el("reset").addEventListener("click", () => {
+  state.q = ""; state.subject = null; state.flag = null; el("q").value = "";
+  setPressed(el("subjects"), "subject", null); setPressed(el("flags"), "flag", null); render();
+});
+render();
+</script>

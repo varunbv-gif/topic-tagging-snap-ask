@@ -1,0 +1,261 @@
+<title>Cascade Run, Twenty Conversations</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --plane:#f7f7f4; --surface:#fdfdfb; --sunk:#f1f1ec;
+    --ink:#16160f; --ink-2:#56564c; --ink-3:#8a8a80;
+    --rule:#e3e2db; --rule-2:#d2d1c8;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4;
+    --track:#e8e7e0;
+    --display:"Archivo","Helvetica Neue",Arial,sans-serif;
+    --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --plane:#0d0d0d; --surface:#1a1a19; --sunk:#232321;
+      --ink:#f4f4ee; --ink-2:#c3c2b7; --ink-3:#8e8d84;
+      --rule:#2e2e2b; --rule-2:#3d3d39;
+      --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+      --track:#2b2b28;
+  } }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane:#0d0d0d; --surface:#1a1a19; --sunk:#232321;
+    --ink:#f4f4ee; --ink-2:#c3c2b7; --ink-3:#8e8d84;
+    --rule:#2e2e2b; --rule-2:#3d3d39;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+    --track:#2b2b28;
+  }
+  body { background: var(--plane); color: var(--ink);
+    font: 400 15px/1.55 var(--body); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; }
+  h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing:-0.015em; text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(28px, 4.6vw, 40px); line-height: 1.07; font-weight: 700; }
+  h2 { font-size: 19px; } h3 { font-size: 15px; } p { margin: 0; }
+  code { font-family: var(--mono); font-size:.88em; }
+  .eyebrow { font: 500 11px/1 var(--mono); letter-spacing: .13em; text-transform: uppercase; color: var(--ink-3); }
+
+  .mast { border-bottom: 2px solid var(--ink); padding-bottom: 20px; }
+  .lede { margin-top: 12px; max-width: 66ch; color: var(--ink-2); font-size: 16px; }
+  .lede b { color: var(--ink); font-weight: 600; }
+
+  section { margin-top: 44px; }
+  .sechead { display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+             flex-wrap:wrap; margin-bottom:16px; }
+  .sechead p { color: var(--ink-3); font-size:13px; max-width: 52ch; }
+
+  /* the ledger: what each number was, what it became */
+  .ledger { display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:1px;
+            background: var(--rule); border-top:2px solid var(--ink); border-bottom:1px solid var(--rule); }
+  .cell { background: var(--plane); padding: 16px 14px 18px 0; }
+  .cell .k { font:500 10.5px/1.35 var(--mono); letter-spacing:.09em; text-transform:uppercase;
+             color: var(--ink-3); }
+  .cell .v { margin-top:10px; display:flex; align-items:baseline; gap:9px; font-family: var(--display); }
+  .cell .was { font-size:20px; font-weight:500; color: var(--ink-3); }
+  .cell .arw { font:400 13px/1 var(--mono); color: var(--ink-3); }
+  .cell .now { font-size: clamp(24px,3.6vw,32px); font-weight:700; letter-spacing:-0.02em; }
+  .cell.up .now { color: var(--s3); }
+  .cell + .cell { padding-left: 16px; }
+
+  .note { border-left:2px solid var(--s2); padding: 2px 0 2px 16px; color: var(--ink-2);
+          font-size:14px; max-width: 74ch; }
+  .note b { color: var(--ink); font-weight:600; }
+  .note + .note { margin-top: 14px; }
+
+  .tablewrap { overflow-x:auto; border:1px solid var(--rule); border-radius:4px; background: var(--surface); }
+  table { border-collapse: collapse; width:100%; font-size:13.5px; min-width: 780px; }
+  th { text-align:left; font:500 10.5px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase;
+       color: var(--ink-3); padding: 12px 12px 10px; border-bottom:1px solid var(--rule-2); white-space:nowrap; }
+  td { padding: 10px 12px; border-bottom:1px solid var(--rule); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td.cid { font:500 12px/1.5 var(--mono); color: var(--ink-2); white-space:nowrap; }
+  td.cid small { display:block; font:400 10.5px/1.5 var(--mono); color: var(--ink-3); }
+  td.tag { color: var(--ink-3); }
+  td.tag.now { color: var(--ink); }
+  td.tag .ch { font-weight:600; }
+  td.tag .tr { font:400 11px/1 var(--mono); color: var(--ink-3); display:block; margin-top:3px; }
+  td.tag .none { font-style:italic; }
+  td.seg { width: 74px; }
+  .segs { display:inline-flex; align-items:center; gap:7px; font:500 12px/1 var(--mono); }
+  .segbar { height:9px; background: var(--s1); border-radius:0 3px 3px 0; min-width:3px; }
+  .flag { font:500 9.5px/1 var(--mono); letter-spacing:.06em; padding:3px 6px; border-radius:2px;
+          white-space:nowrap; display:inline-block; }
+  .f-new  { background: color-mix(in srgb, var(--s3) 18%, transparent); color: var(--s3); }
+  .f-tree { background: color-mix(in srgb, var(--s1) 16%, transparent); color: var(--s1); }
+  .f-gap  { background: color-mix(in srgb, var(--s4) 22%, transparent); color: var(--s4); }
+  tr.open td { background: var(--sunk); }
+  tr.det td { background: var(--sunk); padding: 0 12px 16px; }
+  tr.det ol { margin:0; padding: 4px 0 0 0; list-style:none; counter-reset: q;
+              display:grid; gap:1px; background: var(--rule); border-radius:3px; overflow:hidden; }
+  tr.det li { counter-increment: q; background: var(--surface); padding: 9px 12px 10px 42px;
+              position:relative; font-size:13px; }
+  tr.det li::before { content: counter(q); position:absolute; left:12px; top:10px;
+              font:500 11px/1 var(--mono); color: var(--ink-3); }
+  tr.det .q { color: var(--ink); }
+  tr.det .a { display:block; margin-top:3px; font:400 11.5px/1.5 var(--mono); color: var(--ink-3); }
+  tr.det .a b { color: var(--ink-2); font-weight:600; }
+  button.row { all:unset; cursor:pointer; display:block; width:100%; }
+  tr.sum:hover td { background: var(--sunk); }
+  tr.sum { cursor: pointer; }
+  tr.sum:focus-visible { outline:2px solid var(--s1); outline-offset:-2px; }
+  .caveat { margin-top:44px; border:1px solid var(--s2); border-radius:4px; padding:18px 20px;
+            background: color-mix(in srgb, var(--s2) 6%, var(--surface)); }
+  .caveat h3 { color: var(--ink); }
+  .caveat p { margin-top:8px; color: var(--ink-2); font-size:14px; max-width:74ch; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (max-width: 720px) { .cell + .cell { padding-left: 0; } }
+</style>
+
+<div class="wrap">
+
+  <header class="mast">
+    <p class="eyebrow">Snap-and-Ask &middot; topic tree mapping</p>
+    <h1>Twenty conversations through the cascade</h1>
+    <p class="lede">The same twenty conversations, tagged twice. <b>Before:</b> one model call per conversation
+      against a shortlist, one tag out. <b>After:</b> the five-stage cascade &mdash; split the conversation into
+      the questions the student actually asked, then tag each one. Every name checked against the tree
+      before it is written.</p>
+  </header>
+
+  <section>
+    <div class="sechead">
+      <h2>What changed</h2>
+      <p>Grey is the old run, bold is the cascade.</p>
+    </div>
+    <div class="ledger" id="ledger"></div>
+    <p class="note" style="margin-top:22px"><b>The unit changed, and that is the whole point.</b>
+      Twenty conversations used to produce twenty tags. They contain <b id="nq">79</b> distinct questions, and
+      the busiest one &mdash; a student revising the night before a history exam &mdash; holds 25 of them across
+      two chapters.</p>
+  </section>
+
+  <section>
+    <div class="sechead">
+      <h2>Conversation by conversation</h2>
+      <p>Click any row to see the questions the splitter found inside it.</p>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th>Conversation</th><th>Questions</th><th>Old tag</th><th>Cascade tag</th><th></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead"><h2>The four findings worth acting on</h2></div>
+    <div id="findings"></div>
+  </section>
+
+  <div class="caveat">
+    <h3>How this run was produced</h3>
+    <p>No API key was available in this environment, so stages 1&ndash;3 &mdash; the three model calls &mdash; were
+      answered by a human following the prompts, and written into the run cache keyed by each prompt's hash.
+      Stages 0 and 4, the payload assembly and the validator and aggregator that produced every number above,
+      are the real code and ran untouched. <b>These figures show what the method produces when followed
+      carefully; they are not a measurement of what an unattended pipeline produces.</b> Nor are they accuracy:
+      no human-labelled reference set exists yet, so &ldquo;tagged&rdquo; means the tag landed on a real node,
+      not that it landed on the right one.</p>
+  </div>
+
+</div>
+
+<script>
+const D = __DATA__;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const $ = id => document.getElementById(id);
+const T = D.totals;
+
+$("nq").textContent = T.segments;
+
+const LEDGER = [
+  ["Conversations", 20, 20, false],
+  ["Questions found", "20", T.segments, true],
+  ["Tagged to a chapter", T.old_tagged, T.new_tagged, T.new_tagged > T.old_tagged],
+  ["Distinct topic nodes", T.old_topics, T.new_topics, T.new_topics > T.old_topics],
+  ["Tags that moved", "—", T.changed, false],
+  ["Invalid names written", 0, T.invalid, false],
+];
+$("ledger").innerHTML = LEDGER.map(([k, was, now, up]) => `
+  <div class="cell${up ? " up" : ""}">
+    <div class="k">${esc(k)}</div>
+    <div class="v"><span class="was">${esc(was)}</span><span class="arw">&rarr;</span><span class="now">${esc(now)}</span></div>
+  </div>`).join("");
+
+const maxSeg = Math.max(...D.rows.map(r => r.segments));
+const tag = (t, now) => t.off
+  ? `<span class="none">${esc(t.path)}</span>`
+  : `<span class="ch">${esc(t.path)}</span><span class="tr">${esc(t.tree)}</span>`;
+
+$("rows").innerHTML = D.rows.map((r, i) => {
+  const flags = [
+    r.new.off === false && r.old.off ? `<span class="flag f-new">rescued</span>` : "",
+    r.tree_moved ? `<span class="flag f-tree">tree moved</span>` : "",
+    r.detail.some(d => d.missing) ? `<span class="flag f-gap">nodes not fetched</span>` : "",
+    r.detail.some(d => d.diverged) ? `<span class="flag f-gap">bot drifted</span>` : "",
+  ].filter(Boolean).join(" ");
+  const detail = r.detail.map(d => `
+    <li><span class="q">${esc(d.posed || d.delivered || "—")}</span>
+      <span class="a">&rarr; <b>${esc(d.chapter || "not on the tree")}</b>${
+        d.topic && d.topic !== "CHAPTER_ONLY" ? " › " + esc(d.topic)
+        : d.missing ? " › nodes never fetched" : " › no node fits"}${
+        d.tree ? "  · " + esc(d.tree) : ""}  · ${esc(d.src.replace("_", " "))}${
+        d.diverged ? `<br>⚠ ${esc(d.divergence)} — bot's own topic recorded as <b>${esc(d.taught_chapter || "")} › ${esc(d.taught_topic || "")}</b>` : ""}</span>
+    </li>`).join("");
+  return `
+  <tr class="sum" tabindex="0" data-i="${i}" aria-expanded="false">
+    <td class="cid">${esc(r.cid)}<small>grade ${esc(r.grade)} · ${esc(r.board)} · ${esc(r.exchanges)} exchanges</small></td>
+    <td class="seg"><span class="segs"><span class="segbar" style="width:${(38 * r.segments / maxSeg).toFixed(1)}px"></span>${r.segments}</span></td>
+    <td class="tag">${tag(r.old)}</td>
+    <td class="tag now">${tag(r.new, true)}</td>
+    <td>${flags}</td>
+  </tr>
+  <tr class="det" data-d="${i}" hidden><td colspan="5"><ol>${detail}</ol></td></tr>`;
+}).join("");
+
+function toggle(i) {
+  const sum = document.querySelector(`tr.sum[data-i="${i}"]`);
+  const det = document.querySelector(`tr.det[data-d="${i}"]`);
+  const open = det.hidden;
+  det.hidden = !open;
+  sum.classList.toggle("open", open);
+  sum.setAttribute("aria-expanded", String(open));
+}
+$("rows").addEventListener("click", e => {
+  const tr = e.target.closest("tr.sum");
+  if (tr) toggle(tr.dataset.i);
+});
+$("rows").addEventListener("keydown", e => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const tr = e.target.closest("tr.sum");
+  if (tr) { e.preventDefault(); toggle(tr.dataset.i); }
+});
+
+$("findings").innerHTML = [
+ [`A wrong tag fixed by arithmetic, not by hand`,
+  `<code>c1aa54f2</code> ran 25 questions: 18 on Print Culture and the Modern World, 7 on The Making of
+   a Global World. The old run tagged it to the <b>minority</b> chapter and it took a manual review to
+   catch. The cascade picks the chapter holding the most questions, so it lands on Print Culture on its
+   own &mdash; and keeps the other seven rather than discarding them.`],
+ [`A conversation the tree covers, previously thrown away`,
+  `<code>23bc1766</code> was rejected as &ldquo;no chapter covers it &mdash; piecewise functions&rdquo;.
+   <b>Mathematics &rsaquo; Relations and Functions exists in the 9_10_Tamilnadu tree</b>, which is exactly
+   where that grade-10 state-board student sits. Showing the whole 2,031-row catalogue in one cached prompt,
+   instead of a shortlist, found it.`],
+ [`The node now picks the tree, not the student's profile`,
+  `<code>f8e29b17</code> is a grade-11 JEE student doing a class-10 pool-dimensions word problem. Resolving
+   the tree from the profile first sent it to 11_12_JEE, whose Quadratic Equations chapter has no
+   word-problem node &mdash; so it landed on <b>&ldquo;Miscellaneous examples&rdquo;</b>. Stage 3 now sees
+   that chapter's nodes across every tree that carries it, and the node names the tree:
+   <b>10_CBSE &rsaquo; Word Problems based on Quadratic equations</b>.`],
+ [`Demand and supply came apart exactly once`,
+  `<code>a9b424f7</code>: the student asked for another probability question and the bot introduced a
+   polynomials question instead. That is the only drift in ${T.segments} questions &mdash; <b>1.3%</b>, against
+   the 18% I had estimated. The polynomials tag is kept in the taught column, so it no longer inflates
+   what students were asking for.`],
+].map(([h, p]) => `<div class="note"><b>${h}.</b> ${p}</div>`).join("");
+</script>

@@ -1,0 +1,19 @@
+The chapter is {subject} > {chapter}, in the {tree} tree.
+Pick the exact node inside it.
+
+Rules
+1. Return the node's ID, not just its name. Some chapters contain the same
+   name twice and the name alone cannot be resolved.
+2. Copy the name EXACTLY as written.
+3. If the chapter is right but no node inside it fits, return "CHAPTER_ONLY"
+   with an empty topic_id. That is a legal, useful answer - prefer it to
+   forcing a bad node.
+
+{label}: {text}
+
+Nodes - id | name [level]:
+{nodes}
+
+Return JSON only, no prose, no code fence:
+{{"topic_id":"...","topic":"...",
+  "topic_level":"TOPIC|SUB_TOPIC|","confidence":"HIGH|MED|LOW"}}

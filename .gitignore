@@ -1,0 +1,67 @@
+# ---------------------------------------------------------------------------
+# STUDENT DATA - never commit. This repository is public.
+#
+# Everything below carries real Snap-and-Ask conversation content: what students
+# typed, what the bot replied, user ids, and in one case a photo of a student's
+# Aadhaar card. It stays on the machine that ran the pipeline.
+# ---------------------------------------------------------------------------
+out2/
+out3/payloads/
+out3/multi/
+out3/rest/
+out3/batches/
+out3/chunks/
+out3/s2/
+out3/*.json
+out3/*.tsv
+out3/*.txt
+out4/cache.json
+out4/pending/
+out4/*.json
+out4/*.jsonl
+out4/*.csv
+*.docx
+conversation_*.csv
+topic_mapping*.csv
+conversation_tags*.csv
+exchange_topic_tags.csv
+chapter_by_grade.csv
+goldset*.csv
+*.jsonl
+
+# Built pages - they embed conversation content, and they are published as
+# Artifacts instead. Their source (out4/*_body.html) is tracked; the assembled
+# file with the data inlined is not.
+dashboard*.html
+topic_mapping_explorer.html
+conversation_funnel.html
+cascade_impact.html
+
+# Data files anywhere in the tree. This repo carries code, prompts and queries -
+# nothing that was extracted or produced by running them. Default-deny, because a
+# new data file appearing at the root must not silently become public.
+*.tsv
+*.json
+*.csv
+*.jsonl
+*.pdf
+*.docx
+!package.json
+!package-lock.json
+
+# ---------------------------------------------------------------------------
+# Machine noise
+# ---------------------------------------------------------------------------
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+sql2/
+
+# Conversation dumps kept as plain text during the earlier run - 148KB of bot
+# teaching notes each. Data, despite the .txt extension.
+view*.txt
+chapter_ids.txt

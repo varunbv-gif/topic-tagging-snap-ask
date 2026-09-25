@@ -1,0 +1,311 @@
+<title>Conversation to Topic Funnel</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --plane:#f7f7f4; --surface:#fdfdfb; --sunk:#f1f1ec;
+    --ink:#16160f; --ink-2:#56564c; --ink-3:#8a8a80;
+    --rule:#e3e2db; --rule-2:#d2d1c8;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4;
+    --track:#e8e7e0;
+    --display:"Archivo","Helvetica Neue",Arial,sans-serif;
+    --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --plane:#0d0d0d; --surface:#1a1a19; --sunk:#232321;
+      --ink:#f4f4ee; --ink-2:#c3c2b7; --ink-3:#8e8d84;
+      --rule:#2e2e2b; --rule-2:#3d3d39;
+      --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+      --track:#2b2b28;
+  } }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane:#0d0d0d; --surface:#1a1a19; --sunk:#232321;
+    --ink:#f4f4ee; --ink-2:#c3c2b7; --ink-3:#8e8d84;
+    --rule:#2e2e2b; --rule-2:#3d3d39;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+    --track:#2b2b28;
+  }
+  body { background: var(--plane); color: var(--ink);
+    font: 400 15px/1.55 var(--body); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; }
+  h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing:-0.015em; text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(28px, 4.8vw, 42px); line-height: 1.06; font-weight: 700; }
+  h2 { font-size: 19px; } h3 { font-size: 15px; } p { margin: 0; }
+  .eyebrow { font: 500 11px/1 var(--mono); letter-spacing: .13em; text-transform: uppercase; color: var(--ink-3); }
+  .mast { border-bottom: 2px solid var(--ink); padding-bottom: 20px; }
+  .lede { margin-top: 12px; max-width: 66ch; color: var(--ink-2); font-size: 16px; }
+  .lede b { color: var(--ink); font-weight: 600; }
+
+  .facts { display:grid; grid-template-columns: repeat(5, 1fr); gap:1px;
+           background: var(--rule); border-bottom:1px solid var(--rule); }
+  .fact { background: var(--plane); padding: 18px 4px 20px 0; }
+  .fact .n { font-family: var(--display); font-weight:700; font-size: clamp(24px,4vw,34px);
+             line-height:1; letter-spacing:-0.02em; }
+  .fact .k { margin-top:7px; font:500 10.5px/1.35 var(--mono); letter-spacing:.09em;
+             text-transform:uppercase; color: var(--ink-3); }
+  .fact + .fact { padding-left: 16px; }
+
+  section { margin-top: 46px; }
+  .sechead { display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+             flex-wrap:wrap; margin-bottom:18px; }
+  .sechead p { color: var(--ink-3); font-size:13px; max-width: 54ch; }
+
+  /* the funnel: one row per stage, the bar narrowing, losses branching right */
+  .funnel { display:grid; gap:0; }
+  .stage { display:grid; grid-template-columns: 148px 1fr; gap:18px; align-items:start;
+           padding: 13px 0; border-top:1px solid var(--rule); }
+  .stage:first-child { border-top:2px solid var(--ink); }
+  .stage .who { text-align:right; }
+  .stage .who .lab { font:600 13px/1.3 var(--display); }
+  .stage .who .num { font:700 22px/1.1 var(--display); letter-spacing:-.02em; margin-top:2px; }
+  .stage .who .pc { font:500 10.5px/1 var(--mono); color: var(--ink-3); margin-top:3px; }
+  .stage .track { position:relative; }
+  .stage .fill { height:30px; border-radius:2px; background: var(--s1); }
+  .stage .fill.last { background: var(--s3); }
+  .stage .note { margin-top:7px; font-size:12.5px; color: var(--ink-3); }
+  .loss { display:flex; align-items:center; gap:10px; margin-top:9px;
+          font-size:12.5px; color: var(--ink-2); }
+  .loss .swatch { height:16px; border-radius:2px; background: var(--track); flex:none;
+                  border-left:2px solid var(--s2); }
+  .loss b { font:600 12.5px/1 var(--mono); color: var(--s2); }
+  .loss span.t { color: var(--ink-3); }
+
+  /* the paths */
+  .bar { display:flex; gap:9px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+  .bar input { flex:1 1 240px; min-width:0; font:400 14px var(--body); color:var(--ink);
+    background:var(--surface); border:1px solid var(--rule-2); border-radius:3px; padding:8px 11px; }
+  .bar input:focus-visible, .bar button:focus-visible { outline:2px solid var(--s1); outline-offset:1px; }
+  .bar button { font:500 11px/1 var(--mono); letter-spacing:.05em; text-transform:uppercase;
+    color:var(--ink-2); background:var(--surface); border:1px solid var(--rule-2); border-radius:3px;
+    padding:8px 11px; cursor:pointer; }
+  .bar button:hover { color:var(--ink); border-color:var(--ink-3); }
+  .bar button[aria-pressed="true"] { background: var(--ink); color: var(--plane); border-color: var(--ink); }
+  .bar .hits { font:500 12.5px/1 var(--mono); color:var(--ink-3); white-space:nowrap; }
+
+  .scroller { max-height: 620px; overflow:auto; border:1px solid var(--rule);
+              border-radius:4px; background: var(--surface); }
+  .path { display:grid; grid-template-columns: 168px 1fr auto; gap:16px; align-items:start;
+          padding: 12px 16px; border-bottom:1px solid var(--rule); }
+  .path:last-child { border-bottom:0; }
+  .path:hover { background: var(--sunk); }
+  .path .who { font:400 11px/1.6 var(--mono); color: var(--ink-3); }
+  .path .who b { display:block; font:600 12px/1.5 var(--mono); color: var(--ink); }
+  .path .chain { font-size:13.5px; line-height:1.6; overflow-wrap:anywhere; }
+  .path .chain .sep { color: var(--ink-3); padding: 0 5px; }
+  .path .chain .tree { font:500 11.5px/1 var(--mono); color: var(--ink-2); }
+  .path .chain .subj { color: var(--ink-3); }
+  .path .chain .chap { color: var(--ink-2); }
+  .path .chain .top { font-weight:600; color: var(--ink); }
+  .path .chain .stop { font-style:italic; color: var(--s2); }
+  .path .chain .also { display:block; margin-top:4px; font:400 11.5px/1.6 var(--mono); color: var(--ink-3); }
+  .path .end { text-align:right; }
+  .chip { font:500 9.5px/1 var(--mono); letter-spacing:.06em; padding:4px 7px; border-radius:2px;
+          white-space:nowrap; display:inline-block; }
+  .c-topic   { background: color-mix(in srgb, var(--s3) 17%, transparent); color: var(--s3); }
+  .c-chapter { background: color-mix(in srgb, var(--s4) 22%, transparent); color: var(--s4); }
+  .c-no_subject { background: color-mix(in srgb, var(--s5) 18%, transparent); color: var(--s5); }
+  .c-no_chapter { background: color-mix(in srgb, var(--s2) 16%, transparent); color: var(--s2); }
+  .c-no_signal  { background: var(--track); color: var(--ink-3); }
+  .path .end .seg { display:block; margin-top:5px; font:400 10px/1 var(--mono); color: var(--ink-3); }
+  .nothing { padding: 40px 0; text-align:center; color: var(--ink-3); }
+
+  /* grade-wise */
+  .grades { display:grid; gap:1px; background: var(--rule);
+            border-top:2px solid var(--ink); border-bottom:1px solid var(--rule); }
+  .gr { background: var(--plane); display:grid; grid-template-columns: 132px 1fr; gap:24px;
+        padding: 18px 0 20px; align-items:start; }
+  .gr .g { font-family: var(--display); }
+  .gr .g .n { font-size:26px; font-weight:700; letter-spacing:-.02em; line-height:1; }
+  .gr .g .k { margin-top:5px; font:500 10px/1.4 var(--mono); letter-spacing:.08em;
+              text-transform:uppercase; color: var(--ink-3); }
+  .gr .g .o { margin-top:8px; font:400 11.5px/1.4 var(--mono); color: var(--s2); }
+  .gr h3 { font:500 10px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase;
+           color: var(--ink-3); margin-bottom:9px; }
+  .gr ol { margin:0; padding:0; list-style:none; display:grid; gap:1px;
+           background: var(--rule); border-radius:3px; overflow:hidden; }
+  .gr li { display:grid; grid-template-columns: 26px 1fr auto; gap:12px; font-size:13.5px;
+           align-items:baseline; background: var(--surface); padding: 8px 12px 9px; }
+  .gr li .n { font:600 12px/1.5 var(--mono); color: var(--ink-2); text-align:right; }
+  .gr li .nm { overflow-wrap:anywhere; font-weight:600; }
+  .gr li .nm small { display:block; font:400 11px/1.5 var(--mono); color: var(--ink-3);
+                     font-weight:400; }
+  .gr li.k-chapter .nm { font-weight:400; }
+  .gr li.k-reject .nm { font-weight:400; color: var(--ink-3); font-style:italic; }
+  .gr li .why { font:500 9.5px/1 var(--mono); letter-spacing:.05em; padding:3px 6px;
+                border-radius:2px; white-space:nowrap; }
+  .gr li.k-chapter .why { background: color-mix(in srgb, var(--s4) 22%, transparent); color: var(--s4); }
+  .gr li.k-reject .why  { background: color-mix(in srgb, var(--s2) 15%, transparent); color: var(--s2); }
+  .gr .extras { margin-top:10px; font:400 11.5px/1.65 var(--mono); color: var(--ink-3); }
+  .gr .extras b { color: var(--ink-2); font-weight:600; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (max-width: 760px) {
+    .facts { grid-template-columns: repeat(2, 1fr); }
+    .fact + .fact { padding-left: 0; }
+    .fact:nth-child(even) { padding-left: 16px; }
+    .stage { grid-template-columns: 1fr; gap: 8px; }
+    .stage .who { text-align:left; display:flex; align-items:baseline; gap:10px; }
+    .stage .who .num { margin-top:0; }
+    .gr { grid-template-columns: 1fr; gap: 14px; }
+    .path { grid-template-columns: 1fr; gap: 8px; }
+    .path .end { text-align:left; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="mast">
+    <p class="eyebrow">Snap-and-Ask &middot; 20 September 2026</p>
+    <h1>Conversation to exact topic</h1>
+    <p class="lede">Every conversation of the day, followed the whole way down: from a
+      <b>conversation_id</b>, to the student behind it, to their grade, board and target, to the tree
+      those rank, to a subject, a chapter, and finally the exact node. This is where each one stopped,
+      and why.</p>
+  </header>
+
+  <div class="facts" id="facts"></div>
+
+  <section>
+    <div class="sechead">
+      <h2>The funnel</h2>
+      <p>Bars are to scale against all 271. What falls out at each step is named beneath it.</p>
+    </div>
+    <div class="funnel" id="funnel"></div>
+  </section>
+
+  <section>
+    <div class="sechead">
+      <h2>Every conversation's path</h2>
+      <p>All 271, each showing the chain it reached and where it stopped.</p>
+    </div>
+    <div class="bar" id="filters"></div>
+    <div class="scroller" id="paths"></div>
+  </section>
+
+  <section>
+    <div class="sechead">
+      <h2>Grade by grade</h2>
+      <p>Each grade in order, with what its students actually worked on and how many of them worked outside their own year.</p>
+    </div>
+    <div class="grades" id="grades" style="margin-top:38px"></div>
+  </section>
+
+</div>
+
+<script>
+const D = __DATA__;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const $ = id => document.getElementById(id);
+const T = D.totals, N = T.convs;
+
+$("facts").innerHTML = [
+  [N, "Conversations"], [T.users, "Students"], [T.tagged, "Reached a chapter"],
+  [T.exact, "Reached a topic"], [T.records, "Topic records"],
+].map(([n, k]) => `<div class="fact"><div class="n">${n}</div><div class="k">${esc(k)}</div></div>`).join("");
+
+const lossAt = l => D.losses.filter(x => x.after === l);
+$("funnel").innerHTML = D.funnel.map((f, i) => {
+  const last = i === D.funnel.length - 1;
+  const losses = lossAt(f.label).map(l => `
+    <div class="loss">
+      <span class="swatch" style="width:${Math.max(3, 100 * l.n / N).toFixed(2)}%"></span>
+      <span><b>&minus;${l.n}</b> ${esc(l.label)} <span class="t">&mdash; ${esc(l.note)}</span></span>
+    </div>`).join("");
+  return `
+  <div class="stage">
+    <div class="who">
+      <div class="lab">${esc(f.label)}</div>
+      <div class="num">${f.n}</div>
+      <div class="pc">${(100 * f.n / N).toFixed(1)}%</div>
+    </div>
+    <div class="track">
+      <div class="fill${last ? " last" : ""}" style="width:${(100 * f.n / N).toFixed(2)}%"></div>
+      <div class="note">${esc(f.note)}</div>
+      ${losses}
+    </div>
+  </div>`;
+}).join("");
+
+const STAGES = [
+  ["all", "All"], ["topic", "Reached a topic"], ["chapter", "Chapter only"],
+  ["no_chapter", "Not in the tree"], ["no_subject", "Not academic"], ["no_signal", "Nothing to go on"],
+];
+const STOP = {topic: "exact topic", chapter: "chapter only", no_subject: "not academic",
+              no_chapter: "not in the tree", no_signal: "nothing to go on"};
+let q = "", stage = "all";
+
+$("filters").innerHTML =
+  STAGES.map(([k, l]) => `<button type="button" data-s="${k}" aria-pressed="${k === "all"}">${esc(l)}</button>`).join("") +
+  `<input type="search" id="q" placeholder="grade 10, Quadratic Equations, 12_Tamilnadu, ICSE&hellip;" aria-label="Search the paths">
+   <span class="hits" id="hits"></span>`;
+
+function render() {
+  const hit = r => (stage === "all" || r.stage === stage) &&
+    (!q || q.split(/\s+/).every(t =>
+      [r.cid, r.uid, "grade " + r.grade, r.board, r.target, r.tree, r.subject, r.chapter,
+       r.topic, r.why, r.all.join(" "), r.chaps.join(" ")].join(" ").toLowerCase().includes(t)));
+  const rows = D.rows.filter(hit);
+  $("hits").textContent = rows.length === N ? `all ${N}` : `${rows.length} of ${N}`;
+  $("paths").innerHTML = rows.length ? rows.map(r => {
+    const s = `<span class="sep">&rsaquo;</span>`;
+    let chain = `<span class="tree">${esc(r.ranked[0])}</span>`;
+    if (r.tree && r.tree !== r.ranked[0]) chain += `<span class="sep">&rarr;</span><span class="tree">${esc(r.tree)}</span>`;
+    if (r.subject) {
+      chain += `${s}<span class="subj">${esc(r.subject)}</span>${s}<span class="chap">${esc(r.chapter)}</span>`;
+      chain += r.topic ? `${s}<span class="top">${esc(r.topic)}</span>`
+                       : `${s}<span class="stop">no node fits</span>`;
+    } else {
+      chain += `${s}<span class="stop">${esc(r.why || r.reject)}</span>`;
+    }
+    const also = [
+      r.all.length ? `+ ${r.all.length} more topic${r.all.length > 1 ? "s" : ""}: ${r.all.join(" · ")}` : "",
+      r.chaps.length ? `+ chapter${r.chaps.length > 1 ? "s" : ""}: ${r.chaps.join(" · ")}` : "",
+    ].filter(Boolean).join("<br>");
+    return `
+    <div class="path">
+      <div class="who"><b>${esc(r.cid)}</b>user &hellip;${esc(r.uid)}<br>grade ${esc(r.grade)} · ${esc(r.board)}<br>${esc(r.target)} · ${r.ex} exch</div>
+      <div class="chain">${chain}${also ? `<span class="also">${also}</span>` : ""}</div>
+      <div class="end"><span class="chip c-${r.stage}">${esc(STOP[r.stage])}</span>${
+        r.segs ? `<span class="seg">cascade: ${r.segs} question${r.segs > 1 ? "s" : ""}</span>` : ""}</div>
+    </div>`;
+  }).join("") : `<div class="nothing">Nothing matches that.</div>`;
+}
+$("filters").addEventListener("click", e => {
+  const b = e.target.closest("button[data-s]");
+  if (!b) return;
+  stage = b.dataset.s;
+  $("filters").querySelectorAll("button[data-s]").forEach(x =>
+    x.setAttribute("aria-pressed", String(x.dataset.s === stage)));
+  render();
+});
+$("q").addEventListener("input", e => { q = e.target.value.trim().toLowerCase(); render(); });
+render();
+
+const KIND = {chapter: "chapter only", reject: "not tagged"};
+$("grades").innerHTML = D.byGrade.map(g => `
+  <div class="gr">
+    <div class="g">
+      <div class="n">Grade ${esc(g.grade)}</div>
+      <div class="k">${g.convs} conversation${g.convs === 1 ? "" : "s"}<br>${g.tagged} reached a chapter</div>
+      ${g.off ? `<div class="o">${g.off} off their own grade</div>` : ""}
+    </div>
+    <div>
+      <h3>What those ${g.convs} conversations were tagged to</h3>
+      <ol>${g.entries.map(([lab, kind, ch, sub, tree, n]) => `
+        <li class="k-${kind}">
+          <span class="n">${n}</span>
+          <span class="nm">${esc(lab)}${
+            kind === "topic" ? `<small>${esc(sub)} · ${esc(ch)} · ${esc(tree)}</small>`
+            : kind === "chapter" ? `<small>${esc(sub)} · ${esc(tree)} · no node inside it fitted</small>`
+            : `<small>${esc(sub)}</small>`}</span>
+          ${kind === "topic" ? "" : `<span class="why">${esc(KIND[kind])}</span>`}
+        </li>`).join("")}</ol>
+      ${g.extras.length ? `<p class="extras"><b>Also covered</b>, by conversations counted above: ${
+        g.extras.map(([t, c, n]) => esc(t) + (n > 1 ? ` ×${n}` : "")).join(" · ")}</p>` : ""}
+    </div>
+  </div>`).join("");
+
+</script>
