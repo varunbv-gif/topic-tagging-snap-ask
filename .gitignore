@@ -5,7 +5,7 @@
 # typed, what the bot replied, user ids, and in one case a photo of a student's
 # Aadhaar card. It stays on the machine that ran the pipeline.
 # ---------------------------------------------------------------------------
-out2/
+out2/*
 out3/payloads/
 out3/multi/
 out3/rest/
@@ -65,3 +65,13 @@ sql2/
 # teaching notes each. Data, despite the .txt extension.
 view*.txt
 chapter_ids.txt
+
+# ---------------------------------------------------------------------------
+# The two inputs that carry NO student data: the Vedantu topic tree itself.
+# These are tracked, so a clone can run --self-check, build the catalogue and
+# validate names without touching the warehouse. Negations come last because
+# the last matching rule wins.
+# ---------------------------------------------------------------------------
+!out2/
+!out2/concepts.json
+!out2/nodes_by_chapter.json

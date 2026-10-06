@@ -44,10 +44,25 @@ ALL_TREES = sorted({t for tm in CONCEPT.values() for t in tm})
 # so the model never guesses a tree and the prompt halves.
 CATALOGUE = "\n".join(f"{s} | {c}" for s, c in sorted(CONCEPT))
 
+# The student profile table is the one input that carries personal data, so it is not
+# in the repository. Without it the tree, the catalogue and the validator still work -
+# only the stages that need a real student do not. Importing must not fail for someone
+# who has cloned the code and not yet run sql/08.
 GBT = {}
-for _l in open(P("out2/gbt.tsv"), encoding="utf-8"):
-    _cid, _uid, _g, _b, _st, _tg = _l.rstrip("\n").split("\t")
-    GBT[_cid] = {"user_id": _uid, "grade": _g, "board": _b, "target": _tg}
+if os.path.exists(P("out2/gbt.tsv")):
+    for _l in open(P("out2/gbt.tsv"), encoding="utf-8"):
+        if not _l.strip():
+            continue
+        _cid, _uid, _g, _b, _st, _tg = _l.rstrip("\n").split("\t")
+        GBT[_cid] = {"user_id": _uid, "grade": _g, "board": _b, "target": _tg}
+
+
+def need(path, query):
+    """Fail with the query that produces the file, not with a FileNotFoundError."""
+    if not os.path.exists(P(path)):
+        raise SystemExit(f"{path} is missing - it holds student data and is not in the "
+                         f"repository.\nRegenerate it with {query}, then run this again.")
+    return P(path)
 
 # ------------------------------------------------------- 0  ASSEMBLE  (no LLM)
 
@@ -565,7 +580,12 @@ if __name__ == "__main__":
 
     OFFLINE = a.offline
     globals()["OFFLINE"] = a.offline
-    records = json.load(open(P(a.source), encoding="utf-8"))
+    records = json.load(open(need(a.source, "sql/05_conversation_full_record.sql"),
+                             encoding="utf-8"))
+    if not GBT:
+        print("note: out2/gbt.tsv is absent, so no grade, board or target is available.\n"
+              "      Tree ranking falls back to the CBSE/NCERT backbone for every student.\n"
+              "      Regenerate it with sql/08_gbt_from_conversation.sql.\n")
     match = lambda c: [k for k in records if k.startswith(c)]
 
     if a.dry_run:

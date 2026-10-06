@@ -113,13 +113,32 @@ transcript is the bot restating it, so every row records which via `ask_source`.
   dropped, and the image count is per conversation rather than per turn, so a
   silent photo cannot be used as a question boundary.
 
-## What is not in this repository
+## What you get on a clone, and what you have to regenerate
 
-**No student data.** Every conversation record, payload dump, cached model reply,
-tagged output and built page is excluded by `.gitignore`. Those carry what
-students typed, what the bot replied, user ids, and in one case a photo of a
-student's Aadhaar card. They stay on the machine that ran the pipeline.
+The topic tree ships with the repository. The student data does not.
 
-The code expects them at `out2/conv_records.json`, `out2/concepts.json`,
-`out2/nodes_by_chapter.json` and `out2/gbt.tsv`; regenerate them with the queries
-in `sql/`.
+| File | In the repo? | What it is | Regenerate with |
+|---|---|---|---|
+| `out2/concepts.json` | **yes** | subject + chapter to tree id | `sql/06_catalogue_all_trees.sql` |
+| `out2/nodes_by_chapter.json` | **yes** | the nodes inside each chapter | `sql/07_nodes_for_chosen_chapters.sql` |
+| `out2/conv_records.json` | no | the conversations themselves | `sql/05_conversation_full_record.sql` |
+| `out2/gbt.tsv` | no | conversation to user, grade, board, target | `sql/08_gbt_from_conversation.sql` |
+
+So this works immediately after cloning, with no warehouse access:
+
+```bash
+python cascade.py --self-check
+```
+
+It loads all 73 trees, 2,031 subject-and-chapter concepts and the node index,
+builds the catalogue the prompts are sent with, and exercises the window
+de-duplication, the chip stripping, the tree ranking and the validator.
+
+Tagging real conversations needs the other two files. Without them the pipeline
+does not crash; it tells you which query produces what is missing. Without
+`gbt.tsv` alone it still runs, falling back to the CBSE/NCERT backbone for every
+student and saying so.
+
+**Why those two are excluded.** They carry what students typed, what the bot
+replied, and 271 user ids. One conversation is a photo of a student's Aadhaar
+card. That data stays on the machine that ran the pipeline.
