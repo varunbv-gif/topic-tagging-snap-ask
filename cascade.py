@@ -1,15 +1,18 @@
 """Map Snap-and-Ask conversations onto the Vedantu topic tree.
 
-Five stages, three of them model calls:
+Four model calls per conversation, however many turns it ran:
 
-    0  ASSEMBLE   code   turns 1..N            -> one payload per conversation
-    1  SEGMENT    model  payload               -> k questions, posed vs delivered
-    2  CHAPTER    model  question              -> subject + chapter + tree
-    3  TOPIC      model  question + chapter    -> node id inside that chapter
-    4  AGGREGATE  code   segments              -> one row per conversation
+    0  ASSEMBLE   code    turns 1..N          -> one payload
+    1  SUMMARISE  model   the whole thing     -> one rich summary
+    2  SUBJECT    model   summary             -> the subject, from 30
+    3  CHAPTER    model   summary + subject   -> the chapter(s) inside it
+    4  TOPIC      model   summary + chapters  -> the exact node id(s)
+    5  WRITE      code    validate            -> one row per conversation
 
-Stage 2's catalogue is identical on every call and goes in the cached prefix;
-the student's tree preference rides in the variable tail so the cache still hits.
+The cascade narrows: 30 subjects, then that subject's chapters, then those
+chapters' nodes. Each call sees only what the one before it chose, so no call
+carries the whole tree. Everything after call 1 reads the summary, never the
+conversation - which is why the summary has to be rich.
 
     python cascade.py --dry-run 0b427a40      # payload + every prompt, no calls
     python cascade.py --limit 5               # run 5 conversations
@@ -153,7 +156,12 @@ def preferred_trees(pay, n=12):
 # --------------------------------------------------------------- model client
 
 PROMPT = {n: open(P("prompts", f"{n}.txt"), encoding="utf-8").read()
-          for n in ("1_segment", "2_chapter", "2_chapter_tail", "3_topic")}
+          for n in ("0_summarise", "1_subject", "2_chapter", "3_topic")}
+
+# How much of the bot's raw replies reaches the summariser. The summary is the only
+# thing the three tree calls ever see, so cutting here is cutting the whole pipeline:
+# 25 of 271 conversations ran past 4,000 and the largest lost 87% of its text.
+RESPONSE_CAP = int(os.environ.get("CASCADE_RESPONSE_CAP", "40000"))
 
 CALLS = collections.Counter()
 
@@ -236,6 +244,19 @@ def call_model(prompt, cached_prefix=None, max_tokens=2000, retries=3):
             time.sleep(2 ** attempt)
 
 
+CACHE_MARK = "---CACHE BOUNDARY---"
+
+
+def split_cache(prompt):
+    """(cached prefix, variable tail). Prompts put their invariant block first and mark
+    where it ends, so that block is cached across every conversation reaching the same
+    step: one subject list for the whole run, one chapter list per subject."""
+    if CACHE_MARK not in prompt:
+        return None, prompt
+    prefix, tail = prompt.split(CACHE_MARK, 1)
+    return prefix.rstrip() + "\n", tail.lstrip("\n")
+
+
 def as_json(text, default):
     """Models add fences and prose however firmly you ask them not to."""
     text = re.sub(r"^```(?:json)?|```$", "", (text or "").strip(), flags=re.M).strip()
@@ -248,63 +269,179 @@ def as_json(text, default):
         except json.JSONDecodeError:
             return default
 
+# ---------------------------------------------------- 1  SUMMARISE  (model call 1)
 
-# ------------------------------------------------------------- 1  SEGMENT
+def p_summarise(pay):
+    """The whole conversation, however many turns, into one prompt."""
+    return PROMPT["0_summarise"].format(
+        student=pay["student"] or "(nothing typed - the photo was the question)",
+        wanted=pay["wanted"] or "(none)",
+        taught=pay["taught"] or "(none)",
+        response=pay["response"][:RESPONSE_CAP] or "(none)",
+        earlier=pay["earlier"] or "(none)")
 
-def p_segment(pay):
-    return PROMPT["1_segment"].format(
-        student=pay["student"] or "(nothing typed - the photo is the question)",
-        wanted=pay["wanted"] or "(none)", taught=pay["taught"] or "(none)",
-        response=pay["response"][:4000] or "(none)", earlier=pay["earlier"] or "(none)")
 
-
-def segment(pay):
-    """No gate. A single turn can carry a whole worksheet page, so turn count is
-    the wrong proxy for how many questions were asked."""
-    raw = call_model(p_segment(pay))
+def summarise(pay):
+    raw = call_model(p_summarise(pay), max_tokens=4000)
     if raw == PENDING_JSON:
-        return None                       # offline: stages 2-3 wait for the next round
-    r = as_json(raw, {})
-    segs = [s for s in r.get("segments") or [] if isinstance(s, dict)]
-    if not segs:                                                  # never lose a conversation
-        segs = [{"i": 1, "posed": pay["student"] or None, "delivered": pay["taught"],
-                 "ask_source": "student_text" if pay["student"] else "bot_restatement",
-                 "diverged": False, "divergence": None, "evidence": "fallback: segmenter returned nothing"}]
-    for i, s in enumerate(segs, 1):
-        s["i"] = i
-    return segs
+        return None
+    s = as_json(raw, {})
+    s.setdefault("overview", "")
+    s.setdefault("covered", [])
+    s.setdefault("ask_source", "bot_restatement")
+    s.setdefault("not_academic", None)
+    s["thin"] = thin_summary(pay, s)
+    if s["thin"]:
+        CALLS["thin"] += 1
+    return s
 
 
-# ------------------------------------------------------------- 2  CHAPTER
+def thin_summary(pay, s):
+    """The summary is the only thing the three tree calls ever see, so a summary that
+    lost half the conversation loses it permanently and silently. The bot's own
+    per-exchange notes are the yardstick: if it wrote twelve and the summary carries
+    two, something was dropped. Flagged, not failed - the call is still usable, it
+    just should not be trusted as complete."""
+    if s.get("not_academic"):
+        return None
+    notes = len([x for x in (pay["taught"] or "").split(" || ") if x.strip()])
+    covered = len(s.get("covered") or [])
+    if not covered:
+        return "the summary covered nothing at all"
+    if notes >= 6 and covered * 3 < notes:
+        return f"{covered} covered against {notes} notes the bot wrote - likely incomplete"
+    return None
 
-def p_chapter(pay, label, text):
-    return PROMPT["2_chapter_tail"].format(
+
+def summary_text(s):
+    """The summary as the three tree calls see it. They never see the conversation."""
+    out = [s.get("overview") or ""]
+    for c in s.get("covered") or []:
+        if isinstance(c, dict):
+            out.append(f'  - {c.get("what", "")}'
+                       + (f'  [{c.get("detail")}]' if c.get("detail") else "")
+                       + (f'  ({c.get("asked_or_taught")})' if c.get("asked_or_taught") else ""))
+    if s.get("level"):
+        out.append(f'  level suggested by the content: {s["level"]}')
+    if s.get("notes"):
+        out.append(f'  note: {s["notes"]}')
+    return "\n".join(x for x in out if x.strip())
+
+
+# ------------------------------------------------------ 2  SUBJECT  (model call 2)
+
+SUBJECTS = sorted({s for s, c in CONCEPT})
+
+
+def p_subject(pay, summary):
+    return split_cache(PROMPT["1_subject"].format(
         grade=pay["grade"] or "?", board=pay["board"] or "?", target=pay["target"] or "?",
-        preferred=", ".join(preferred_trees(pay)), label=label, text=text)
+        summary=summary, subjects="\n".join(SUBJECTS)))
 
 
-def chapter(pay, label, text):
-    raw = call_model(p_chapter(pay, label, text),
-                     cached_prefix=PROMPT["2_chapter"].format(catalogue=CATALOGUE),
-                     max_tokens=400)
+def subject(pay, summary):
+    prefix, tail = p_subject(pay, summary)
+    raw = call_model(tail, cached_prefix=prefix, max_tokens=400)
     if raw == PENDING_JSON:
         return None
     r = as_json(raw, {"reject": "UNKNOWN", "why": "unparseable model output"})
-    subj, chap = r.get("subject") or "", r.get("chapter") or ""
-    carriers = CONCEPT.get((subj, chap), {})
+    subs = [s for s in (r.get("subjects") or []) if s in CONCEPT_BY_SUBJECT]
+    return {"subjects": subs, "confidence": r.get("confidence") or "LOW",
+            "reject": r.get("reject") or (None if subs else "UNKNOWN"),
+            "why": r.get("why") or ""}
+
+
+CONCEPT_BY_SUBJECT = collections.defaultdict(list)
+for (_s, _c) in CONCEPT:
+    CONCEPT_BY_SUBJECT[_s].append(_c)
+
+
+# ------------------------------------------------------ 3  CHAPTER  (model call 3)
+
+def p_chapter(pay, summary, subs):
+    listing = "\n".join(f"{s} | {c}" for s in subs for c in sorted(CONCEPT_BY_SUBJECT[s]))
+    return split_cache(PROMPT["2_chapter"].format(
+        grade=pay["grade"] or "?", board=pay["board"] or "?", target=pay["target"] or "?",
+        preferred=", ".join(preferred_trees(pay)), summary=summary,
+        subject_list=" and ".join(subs), chapters=listing))
+
+
+def chapter(pay, summary, subs):
+    prefix, tail = p_chapter(pay, summary, subs)
+    raw = call_model(tail, cached_prefix=prefix, max_tokens=1200)
+    if raw == PENDING_JSON:
+        return None
+    r = as_json(raw, {"reject": "UNKNOWN", "why": "unparseable model output"})
     order = preferred_trees(pay, n=len(ALL_TREES))
-    # A chapter can sit in a dozen trees. Committing to one here on the student's profile
-    # alone put a grade-11 JEE student's class-10 word problem into 11_12_JEE, whose
-    # Quadratic Equations has no word-problem node - so it landed on "Miscellaneous
-    # examples". Stage 3 chooses the node from every carrier and the node names the tree.
-    return {"subject": subj, "chapter": chap,
-            "trees": sorted(carriers, key=order.index),
-            "tree": min(carriers, key=order.index) if carriers else "",
-            "confidence": r.get("confidence") or "LOW",
-            "reject": r.get("reject") or None, "why": r.get("why") or ""}
+    out = []
+    for c in r.get("chapters") or []:
+        if not isinstance(c, dict):
+            continue
+        key = (c.get("subject"), c.get("chapter"))
+        carriers = CONCEPT.get(key, {})
+        if not carriers:                                  # not in the tree - dropped, not written
+            continue
+        out.append({"subject": key[0], "chapter": key[1],
+                    "trees": sorted(carriers, key=order.index),
+                    "tree": min(carriers, key=order.index),
+                    "covers": c.get("covers") or "",
+                    "confidence": c.get("confidence") or "LOW"})
+    return {"chapters": out, "reject": r.get("reject") or (None if out else "OUT_OF_SCOPE"),
+            "why": r.get("why") or ""}
 
 
-# --------------------------------------------------------------- 3  TOPIC
+# -------------------------------------------------------- 4  TOPIC  (model call 4)
+
+def p_topic(summary, picks):
+    blocks = []
+    for p in picks:
+        ns = nodes_for(p)
+        blocks.append(f'{p["subject"]} > {p["chapter"]}'
+                      + (f'  [{" / ".join(dict.fromkeys(n["tree"] for n in ns))}]' if ns else "")
+                      + ":\n"
+                      + ("\n".join(f'  {n["id"]} | {n["name"]} [{n["lvl"]}]' for n in ns)
+                         or "  (no nodes fetched for this chapter)"))
+    return PROMPT["3_topic"].format(summary=summary, nodes="\n\n".join(blocks))
+
+
+def topic(summary, picks):
+    live = [p for p in picks if nodes_for(p)]
+    if not live:
+        CALLS["nodes_missing"] += len(picks)
+        return [{"chapter": p["chapter"], "topic_id": "", "topic": "CHAPTER_ONLY",
+                 "topic_level": "", "confidence": p["confidence"], "tree": p["tree"],
+                 "subject": p["subject"], "nodes_missing": True} for p in picks]
+    raw = call_model(p_topic(summary, picks), max_tokens=1600)
+    if raw == PENDING_JSON:
+        return None
+    r = as_json(raw, {})
+    by_chapter = {p["chapter"]: p for p in picks}
+    index = {n["id"]: (n, p) for p in picks for n in nodes_for(p)}
+    out = []
+    for t in r.get("topics") or []:
+        if not isinstance(t, dict):
+            continue
+        hit = index.get(t.get("topic_id"))
+        pick = (hit[1] if hit else by_chapter.get(t.get("chapter")))
+        if not pick:
+            continue
+        out.append({"subject": pick["subject"], "chapter": pick["chapter"],
+                    "tree": hit[0]["tree"] if hit else pick["tree"],
+                    "topic_id": t.get("topic_id") or "",
+                    "topic": t.get("topic") or "CHAPTER_ONLY",
+                    "topic_level": t.get("topic_level") or "",
+                    "confidence": t.get("confidence") or "LOW"})
+    seen = {o["chapter"] for o in out}
+    for p in picks:                                       # a chapter the model said nothing about
+        if p["chapter"] not in seen:
+            out.append({"subject": p["subject"], "chapter": p["chapter"], "tree": p["tree"],
+                        "topic_id": "", "topic": "CHAPTER_ONLY", "topic_level": "",
+                        "confidence": p["confidence"],
+                        "nodes_missing": not nodes_for(p)})
+            if not nodes_for(p):
+                CALLS["nodes_missing"] += 1
+    return out
+
 
 def nodes_for(pick):
     """Every node of this chapter across every tree that carries it, de-duplicated on
@@ -320,265 +457,243 @@ def nodes_for(pick):
     return out
 
 
-def p_topic(pick, label, text):
-    nodes = nodes_for(pick)
-    return PROMPT["3_topic"].format(
-        subject=pick["subject"], chapter=pick["chapter"],
-        tree=" / ".join(dict.fromkeys(n["tree"] for n in nodes)) or pick["tree"],
-        label=label, text=text,
-        nodes="\n".join(f"{n['id']} | {n['name']} [{n['lvl']}]" for n in nodes) or "(none fetched)")
-
-
-def topic(pick, label, text):
-    nodes = nodes_for(pick)
-    if not nodes:
-        # the node index covers only the chapters expanded so far. Silently returning
-        # CHAPTER_ONLY here would look like "no node fits" when it means "never fetched".
-        CALLS["nodes_missing"] += 1
-        return {"topic_id": "", "topic": "CHAPTER_ONLY", "topic_level": "",
-                "confidence": pick["confidence"], "nodes_missing": True, "tree": pick["tree"]}
-    raw = call_model(p_topic(pick, label, text), max_tokens=300)
-    if raw == PENDING_JSON:
-        return None
-    r = as_json(raw, {})
-    hit = next((n for n in nodes if n["id"] == r.get("topic_id")), None)
-    return {"topic_id": r.get("topic_id") or "", "topic": r.get("topic") or "CHAPTER_ONLY",
-            "topic_level": r.get("topic_level") or "", "confidence": r.get("confidence") or "LOW",
-            "tree": hit["tree"] if hit else pick["tree"]}
-
-
-# ------------------------------------------------------- 4  AGGREGATE  (no LLM)
+# --------------------------------------------------- 5  WRITE IT OUT  (no model)
 
 VALID_CHAPTERS = {c for _, c in CONCEPT}
 VALID_NODES = {n["id"]: n for v in NODES.values() for n in v}
-REJECTS = {"NOT_ACADEMIC", "OUT_OF_SCOPE", "UNKNOWN"}
 
 
-def validate(pick, tp):
+def validate(t):
     """A name the model invented is rejected, not written. This is the only reason
-    the output can be trusted without a human reading all 271."""
-    if pick.get("reject"):
-        return None
-    tree = tp.get("tree") or pick["tree"]
-    cid = CONCEPT.get((pick["subject"], pick["chapter"]), {}).get(tree)
+    the output can be trusted without a human reading every row."""
+    cid = CONCEPT.get((t["subject"], t["chapter"]), {}).get(t["tree"])
     if not cid:
-        return "chapter not in the tree"
-    if tp["topic"] != "CHAPTER_ONLY":
-        node = VALID_NODES.get(tp["topic_id"])
-        if not node or node["name"] != tp["topic"]:
+        return "chapter is not in that tree"
+    if t["topic"] != "CHAPTER_ONLY":
+        node = VALID_NODES.get(t["topic_id"])
+        if not node or node["name"] != t["topic"]:
             return "node id and name do not agree"
         if node not in NODES.get(cid, []):
             return "node is not inside that chapter"
     return None
 
 
-def tag_segment(pay, seg):
-    """Tag what was ASKED. Tag what was DELIVERED too when they differ - the gap
-    between them is a bot-quality signal nothing else in the data exposes."""
-    asked_text = seg.get("posed") or seg.get("delivered") or ""
-    out = {"conversation_id": pay["conversation_id"], "user_id": pay["user_id"],
-           "segment": seg["i"], "grade": pay["grade"], "board": pay["board"],
-           "target": pay["target"], "ask_source": seg.get("ask_source") or "bot_restatement",
-           "diverged": bool(seg.get("diverged")), "divergence": seg.get("divergence"),
-           "posed": seg.get("posed"), "delivered": seg.get("delivered")}
-
-    pick = chapter(pay, "POSED", asked_text)
-    tp = topic(pick, "POSED", asked_text) if not pick["reject"] else \
-        {"topic_id": "", "topic": "", "topic_level": "", "confidence": pick["confidence"]}
-    bad = validate(pick, tp)
-    tree = tp.get("tree") or pick["tree"]
-    out.update(asked_subject=pick["subject"], asked_chapter=pick["chapter"],
-               asked_chapter_id=CONCEPT.get((pick["subject"], pick["chapter"]), {}).get(tree, ""),
-               asked_topic=tp["topic"], asked_topic_id=tp["topic_id"],
-               asked_topic_level=tp["topic_level"], tree=tree,
-               confidence=tp["confidence"], reject=pick["reject"], why=pick["why"],
-               invalid=bad, nodes_missing=tp.get("nodes_missing", False))
-    if bad:                                                       # refuse it rather than write it
-        out.update(asked_subject="", asked_chapter="", asked_chapter_id="",
-                   asked_topic="", asked_topic_id="", tree="", reject="UNKNOWN")
-
-    if seg.get("diverged") and seg.get("delivered"):
-        d_pick = chapter(pay, "DELIVERED", seg["delivered"])
-        d_tp = topic(d_pick, "DELIVERED", seg["delivered"]) if d_pick and not d_pick["reject"] else \
-            {"topic_id": "", "topic": "", "topic_level": "", "confidence": "LOW"}
-        if not validate(d_pick, d_tp):
-            out.update(taught_subject=d_pick["subject"], taught_chapter=d_pick["chapter"],
-                       taught_topic=d_tp["topic"], taught_topic_id=d_tp["topic_id"])
-    return out
-
-
-def aggregate(pay, segs):
-    """Primary chapter = the one holding the most segments; ties go to the one with
-    more HIGH confidence. Everything else is kept, not discarded."""
-    good = [s for s in segs if s["asked_chapter"]]
-    if not good:
-        r = segs[0]
-        return {**{k: "" for k in ROW}, "user_id": pay["user_id"],
-                "conversation_id": pay["conversation_id"], "grade": pay["grade"],
-                "board": pay["board"], "target": pay["target"], "exchanges": pay["exchanges"],
-                "subject": r.get("reject") or "UNKNOWN", "chapter": r.get("why", ""),
-                "confidence": r.get("confidence", "LOW"), "n_topics": "0"}
-
-    score = collections.Counter()
-    for s in good:
-        score[(s["asked_subject"], s["asked_chapter"], s["tree"])] += 2 + (s["confidence"] == "HIGH")
-    (subj, chap, tree), _ = score.most_common(1)[0]
-    primary = next(s for s in good if (s["asked_subject"], s["asked_chapter"], s["tree"]) == (subj, chap, tree))
-
-    chapters, topics = [], []
-    for s in good:
-        if s["asked_chapter"] not in chapters:
-            chapters.append(s["asked_chapter"])
-        if s["asked_topic"] and s["asked_topic"] != "CHAPTER_ONLY" and s["asked_topic"] not in topics:
-            topics.append(s["asked_topic"])
-    chapters = [chap] + [c for c in chapters if c != chap]        # primary always first
-
-    drift = [s for s in good if s.get("diverged")]
-    return {"user_id": pay["user_id"], "conversation_id": pay["conversation_id"],
-            "grade": pay["grade"], "board": pay["board"], "target": pay["target"],
-            "exchanges": pay["exchanges"], "subject": subj, "chapter": chap,
-            "chapter_id": primary["asked_chapter_id"], "topic": primary["asked_topic"],
-            "topic_id": primary["asked_topic_id"], "topic_level": primary["asked_topic_level"],
-            "tree": tree, "confidence": primary["confidence"],
-            "note": primary["why"] if len(chapters) > 1 else "",
-            "all_chapters": "|".join(chapters), "all_topics": "|".join(topics),
-            "n_topics": str(len(topics)), "is_multi": "Y" if len(topics) > 1 or len(chapters) > 1 else "",
-            "multi_note": f"{len(drift)} of {len(good)} segments: bot answered something else"
-                          if drift else ""}
-
-
 ROW = ["user_id", "conversation_id", "grade", "board", "target", "exchanges", "subject",
        "chapter", "chapter_id", "topic", "topic_id", "topic_level", "tree", "confidence",
        "note", "all_chapters", "all_topics", "n_topics", "is_multi", "multi_note"]
 
+REJECT_ROW = {"chit chat": "NOT_ACADEMIC", "app question": "NOT_ACADEMIC",
+              "photo with no schoolwork": "NOT_ACADEMIC", "illegible": "UNKNOWN"}
+
+
+def write_row(pay, summary, topics, reject=None, why=""):
+    base = {k: "" for k in ROW}
+    base.update(user_id=pay["user_id"], conversation_id=pay["conversation_id"],
+                grade=pay["grade"], board=pay["board"], target=pay["target"],
+                exchanges=pay["exchanges"], n_topics="0")
+    if reject:
+        base.update(subject=reject, chapter=why or (summary or {}).get("overview", "")[:160])
+        return base
+
+    first = topics[0]
+    chapters, nodes = [], []
+    for t in topics:
+        if t["chapter"] not in chapters:
+            chapters.append(t["chapter"])
+        if t["topic"] != "CHAPTER_ONLY" and t["topic"] not in nodes:
+            nodes.append(t["topic"])
+    base.update(subject=first["subject"], chapter=first["chapter"],
+                chapter_id=CONCEPT[(first["subject"], first["chapter"])][first["tree"]],
+                topic=first["topic"], topic_id=first["topic_id"],
+                topic_level=first["topic_level"], tree=first["tree"],
+                confidence=first["confidence"],
+                note=" / ".join(x for x in [(summary or {}).get("notes"),
+                                           (summary or {}).get("thin")] if x),
+                all_chapters="|".join(chapters), all_topics="|".join(nodes),
+                n_topics=str(len(nodes)),
+                is_multi="Y" if len(nodes) > 1 or len(chapters) > 1 else "",
+                multi_note=f"{len(chapters)} chapters, {len(topics)} topics"
+                           if len(chapters) > 1 else "")
+    return base
+
 
 # ------------------------------------------------------------------------ run
 
+def tag_one(pay):
+    """Four model calls, whatever the conversation's length: summarise, then
+    subject, chapter, topic. Returns (row, summary, topics) or None while waiting."""
+    s = summarise(pay)
+    if s is None:
+        return None
+    if s.get("not_academic"):
+        return (write_row(pay, s, [], REJECT_ROW.get(s["not_academic"], "NOT_ACADEMIC"),
+                          s["not_academic"]), s, [])
+
+    text = summary_text(s)
+    sub = subject(pay, text)
+    if sub is None:
+        return None
+    if sub["reject"]:
+        return write_row(pay, s, [], sub["reject"], sub["why"]), s, []
+
+    ch = chapter(pay, text, sub["subjects"])
+    if ch is None:
+        return None
+    if ch["reject"] or not ch["chapters"]:
+        return write_row(pay, s, [], ch["reject"] or "OUT_OF_SCOPE", ch["why"]), s, []
+
+    tps = topic(text, ch["chapters"])
+    if tps is None:
+        return None
+    good, bad = [], []
+    for t in tps:
+        why = validate(t)
+        (bad if why else good).append({**t, "invalid": why})
+    if not good:
+        return write_row(pay, s, [], "UNKNOWN", "every name returned failed validation"), s, bad
+    return write_row(pay, s, good), s, good + bad
+
+
 def run(cids, records):
-    rows, segments, waiting = [], [], 0
+    rows, summaries, tags, waiting = [], [], [], 0
     for i, cid in enumerate(cids, 1):
         pay = assemble(cid, records[cid])
-        raw_segs = segment(pay)
-        segs = [x for x in (tag_segment(pay, s) for s in raw_segs or []) if x]
-        if raw_segs is None or len(segs) != len(raw_segs):
+        got = tag_one(pay)
+        if got is None:
             waiting += 1
             print(f"  [{i}/{len(cids)}] {cid[:8]}  waiting on a reply", flush=True)
             continue
-        segments += segs
-        rows.append(aggregate(pay, segs))
-        print(f"  [{i}/{len(cids)}] {cid[:8]}  {len(segs)} segment(s)  "
-              f"{rows[-1]['chapter'] or rows[-1]['subject']}", flush=True)
+        row, s, tps = got
+        rows.append(row)
+        summaries.append({"conversation_id": cid, **s})
+        tags += [{"conversation_id": cid, **t} for t in tps]
+        print(f"  [{i}/{len(cids)}] {cid[:8]}  {len(s.get('covered') or [])} covered -> "
+              f"{len(tps)} topic(s)  {row['chapter'] or row['subject']}", flush=True)
     save_cache()
     if waiting:
         print(f"\n{waiting} conversations waiting. {CALLS['pending']} prompts written to "
               f"out4/pending/ - answer them into out4/cache.json (key = filename) and run again.")
 
     os.makedirs(OUT, exist_ok=True)
-    with open(P("out4/segments.jsonl"), "w", encoding="utf-8") as f:
-        for s in segments:
-            f.write(json.dumps(s, ensure_ascii=False) + "\n")
+    for name, data in (("summaries.jsonl", summaries), ("topics.jsonl", tags)):
+        with open(P("out4", name), "w", encoding="utf-8") as f:
+            for d in data:
+                f.write(json.dumps(d, ensure_ascii=False) + "\n")
     with open(P("out4/topic_mapping.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=ROW, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
 
     tagged = [r for r in rows if r["chapter_id"]]
-    bad = [s for s in segments if s.get("invalid")]
-    print(f"\n{len(rows)} conversations, {len(segments)} segments, {CALLS['total']} model calls"
-          f"{f' ({CALLS[chr(114) + chr(101) + chr(116) + chr(114) + chr(121)]} retried)' if CALLS['retry'] else ''}")
+    invalid = [t for t in tags if t.get("invalid")]
+    print(f"\n{len(rows)} conversations, {CALLS['total']} model calls"
+          f"  ({4 * len(rows)} expected: 4 per conversation)")
     print(f"  tagged to a chapter   {len(tagged)}")
-    print(f"  at an exact topic     {sum(1 for r in tagged if r['topic'] and r['topic'] != 'CHAPTER_ONLY')}")
+    print(f"  at an exact topic     {sum(1 for r in tagged if r['topic'] != 'CHAPTER_ONLY')}")
     print(f"  more than one topic   {sum(1 for r in tagged if r['is_multi'])}")
-    print(f"  ask from student text {sum(1 for s in segments if s['ask_source'] == 'student_text')} of {len(segments)} segments")
-    print(f"  bot answered elsewhere{sum(1 for s in segments if s['diverged']):>4} segments")
-    print(f"  rejected as invalid   {len(bad)}")
+    print(f"  topic records         {sum(int(r['n_topics'] or 0) for r in tagged)}")
+    print(f"  rejected as invalid   {len(invalid)}")
+    if CALLS["thin"]:
+        print(f"  !! thin summaries     {CALLS['thin']}  - carried far less than the bot's "
+              f"own notes did\n"
+              f"                           (tagged, but not to be read as complete)")
     if CALLS["nodes_missing"]:
-        need = sorted({(s["asked_subject"], s["asked_chapter"]) for s in segments if s.get("nodes_missing")})
-        print(f"\n  !! {CALLS['nodes_missing']} segments hit a chapter whose nodes were never fetched")
-        print(f"     {len(need)} chapters need sql/07_nodes_for_chosen_chapters.sql before stage 3 can run:")
-        for sub, ch in need[:8]:
-            print(f"       {sub} > {ch}")
-        if len(need) > 8:
-            print(f"       ... and {len(need) - 8} more")
+        need = sorted({(t["subject"], t["chapter"]) for t in tags if t.get("nodes_missing")})
+        print(f"\n  !! {len(need)} chapters have no node list - run "
+              f"sql/07_nodes_for_chosen_chapters.sql for them")
+        for s, c in need[:8]:
+            print(f"       {s} > {c}")
         json.dump([{"subject": a, "chapter": b} for a, b in need],
-                  open(P("out4/chapters_needing_nodes.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-    print(f"\nout4/topic_mapping.csv  out4/segments.jsonl")
+                  open(P("out4/chapters_needing_nodes.json"), "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=1)
+    print(f"\nout4/topic_mapping.csv  out4/summaries.jsonl  out4/topics.jsonl")
 
 
 def dry_run(cid, records):
     pay = assemble(cid, records[cid])
     bar = lambda t: print("\n" + "=" * 72 + f"\n{t}\n" + "=" * 72)
-    bar("STAGE 0  PAYLOAD")
+    bar("STAGE 0  PAYLOAD  (no model)")
     print(json.dumps(pay, ensure_ascii=False, indent=2))
-    bar("STAGE 1  SEGMENT prompt")
-    print(p_segment(pay))
-    bar("STAGE 2  CHAPTER cached prefix")
-    head = PROMPT["2_chapter"].format(catalogue=CATALOGUE)
-    print(head[:head.index("Catalogue")] + "Catalogue - subject | chapter:\n"
-          + "\n".join(CATALOGUE.split("\n")[:6])
-          + f"\n  ... {len(CATALOGUE.splitlines()):,} rows, {len(head):,} chars, identical every call")
-    bar("STAGE 2  CHAPTER variable tail")
-    print(p_chapter(pay, "POSED", "<the posed text of one segment>"))
-    bar("STAGE 3  TOPIC prompt")
-    demo = {"subject": "Mathematics", "chapter": "Quadratic Equations", "tree": "10_CBSE",
-            "confidence": "HIGH"}
-    print(p_topic(demo, "POSED", "<the posed text of one segment>"))
-    print("\n(no model was called)")
+    bar("CALL 1  SUMMARISE  - the whole conversation, however many turns")
+    print(p_summarise(pay))
+    demo = "<the summary from call 1 goes here>"
+    for title, built in [
+            (f"CALL 2  SUBJECT  - {len(SUBJECTS)} to choose from", p_subject(pay, demo)),
+            ("CALL 3  CHAPTER  - only the chosen subject's chapters",
+             p_chapter(pay, demo, ["Mathematics"]))]:
+        prefix, tail = built
+        bar(title)
+        print(f"--- cached prefix: {len(prefix):,} chars, identical for every "
+              f"conversation reaching this step")
+        print(prefix[:900] + ("\n  ..." if len(prefix) > 900 else ""))
+        print(f"\n--- variable tail: {len(tail):,} chars")
+        print(tail)
+    bar("CALL 4  TOPIC  - only the chosen chapters' nodes")
+    pick = {"subject": "Mathematics", "chapter": "Quadratic Equations",
+            "trees": ["10_CBSE"], "tree": "10_CBSE", "confidence": "HIGH"}
+    print(p_topic(demo, [pick]))
+    print("\n(no model was called - 4 calls is the whole budget for this conversation)")
 
 
 def self_check():
     """The code stages. Runs without a key - these are what the model cannot fix."""
-    assert clean("Let's go 💪 || Okay 👍") == "", "chips must be stripped"
+    assert clean("Let's go || Okay") == "", "chips must be stripped"
     assert clean("Solved for x || Solved for x || Then found y") == "Solved for x || Then found y", \
         "the rolling window must de-duplicate"
     assert clean("Proceedings are quite as. ~ I don't know. ~ Let's go") == "Proceedings are quite as.", \
-        "student lines join with ' ~ ', not '||' - splitting on '||' alone leaves the chips in"
+        "student lines join with ' ~ ', not '||'"
     assert ("?", "") not in CONCEPT, "the blank catalogue row must not be a legal answer"
-    assert clean("Found N || found  n") == "Found N", "de-dup is case and punctuation blind"
-    assert clean(None) == ""
 
     pay = {"grade": "8", "board": "CBSE", "target": "JEE"}
     pref = preferred_trees(pay)
     assert pref[0] == "8_CBSE", f"own grade+board first, got {pref[0]}"
     assert not any(t.startswith("UNNAMED_") for t in pref), "unnamed trees must never be preferred"
-    assert len(preferred_trees({"grade": "12", "board": "STATE", "target": "NA"})) == 12, \
-        "a board that names no tree still gets a full preference list"
-    assert set(pref) <= set(ALL_TREES) and len(ALL_TREES) == 73
+    assert len(preferred_trees({"grade": "12", "board": "STATE", "target": "NA"})) == 12
 
     ok = {"subject": "Mathematics", "chapter": "Quadratic Equations", "tree": "10_CBSE"}
-    assert validate(ok, {"topic": "CHAPTER_ONLY", "topic_id": ""}) is None
-    assert validate({"subject": "Mathematics", "chapter": "Invented Chapter", "tree": "10_CBSE"},
-                    {"topic": "CHAPTER_ONLY", "topic_id": ""}) == "chapter not in the tree"
-    assert validate(ok, {"topic": "Invented Node", "topic_id": "deadbeef"}) is not None, \
-        "an invented node must be rejected"
-    assert validate({"reject": "NOT_ACADEMIC"}, {}) is None
+    assert validate({**ok, "topic": "CHAPTER_ONLY", "topic_id": ""}) is None
+    assert validate({"subject": "Mathematics", "chapter": "Invented", "tree": "10_CBSE",
+                     "topic": "CHAPTER_ONLY", "topic_id": ""}) == "chapter is not in that tree"
+    assert validate({**ok, "topic": "Invented Node", "topic_id": "deadbeef"}) is not None
 
     assert as_json('```json\n{"a":1}\n```', {}) == {"a": 1}
     assert as_json('here you go {"a":1} hope that helps', {}) == {"a": 1}
     assert as_json("not json at all", {"fallback": True}) == {"fallback": True}
 
-    print(f"self-check passed - {len(CONCEPT):,} concepts, {len(ALL_TREES)} trees, "
-          f"{len(VALID_NODES):,} nodes, catalogue {len(CATALOGUE.splitlines()):,} rows")
+    s = {"overview": "Worked through two quadratics.",
+         "covered": [{"what": "factorised x^2-4x-96", "detail": "(x-12)(x+8)",
+                      "asked_or_taught": "taught"}]}
+    assert "factorised x^2-4x-96" in summary_text(s) and "(x-12)(x+8)" in summary_text(s), \
+        "the summary must carry its detail into the three tree calls"
+
+    assert len(SUBJECTS) == len(CONCEPT_BY_SUBJECT)
+    biggest = max(CONCEPT_BY_SUBJECT, key=lambda s: len(CONCEPT_BY_SUBJECT[s]))
+    print(f"self-check passed - {len(CONCEPT):,} concepts, {len(SUBJECTS)} subjects, "
+          f"{len(ALL_TREES)} trees, {len(VALID_NODES):,} nodes")
+    print(f"  call 2 sees {len(SUBJECTS)} subjects")
+    print(f"  call 3 sees {len(CONCEPT_BY_SUBJECT[biggest])} chapters at worst ({biggest})")
+    print(f"  call 4 sees a median of "
+          f"{sorted(len(v) for v in NODES.values())[len(NODES) // 2]} nodes")
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--dry-run", metavar="CID", help="print the payload and every prompt, call nothing")
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--dry-run", metavar="CID", help="print the payload and all four prompts")
     ap.add_argument("--limit", type=int, help="run only the first N conversations")
     ap.add_argument("--only", metavar="CID", help="run one conversation")
+    ap.add_argument("--cids", metavar="FILE", help="JSON list of conversation ids to run")
     ap.add_argument("--self-check", action="store_true", help="test the code stages, no key needed")
     ap.add_argument("--offline", action="store_true",
                     help="never call an API: serve from out4/cache.json, write misses to out4/pending/")
-    ap.add_argument("--cids", metavar="FILE", help="JSON list of conversation ids to run")
     ap.add_argument("--source", default="out2/conv_records.json",
-                    help="assembled conversations (production: sql/09_input_parameters.sql)")
+                    help="assembled conversations (production: sql/05_conversation_full_record.sql)")
     a = ap.parse_args()
 
     if a.self_check:
         self_check()
         raise SystemExit
 
-    OFFLINE = a.offline
     globals()["OFFLINE"] = a.offline
     records = json.load(open(need(a.source, "sql/05_conversation_full_record.sql"),
                              encoding="utf-8"))

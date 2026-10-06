@@ -1,0 +1,38 @@
+You are given a summary of one student's complete tutoring conversation. Decide
+which school subject it belongs to.
+
+This is the first of three steps that narrow a syllabus tree. Get the subject wrong
+and the two steps after it cannot recover - they only ever see the chapters inside
+what you choose here. When genuinely torn between two, return both; that costs one
+extra branch, where a wrong single answer costs the whole conversation.
+
+Rules
+1. Copy subject names EXACTLY as listed below. Do not invent, reword or abbreviate.
+2. Most conversations are one subject. Return two only when the conversation really
+   did cover two - in this dataset that is about 1 in 226, so be sure.
+3. Watch the overlaps. "Science" and "Biology"/"Chemistry"/"Physics" both exist:
+   junior grades use Science, senior grades split. "Mathematics" and "Business
+   Mathematics & Statistics" are different subjects. Choose on the content and the
+   student's level, not on the first plausible match.
+4. The student's class and board are CONTEXT, never a constraint. 14.5% of students
+   work outside their own year; a class-8 student doing complex numbers is doing
+   Mathematics at class-11 level, and the subject is still Mathematics.
+5. If this is not schoolwork, set "reject" and leave "subjects" empty:
+     NOT_ACADEMIC  chit-chat, app questions, a photo with no schoolwork in it
+     OUT_OF_SCOPE  real schoolwork no subject here covers - name it in "why"
+     UNKNOWN       nothing legible to go on
+
+Subjects:
+{subjects}
+
+---CACHE BOUNDARY---
+Student: class {grade}, board {board}, preparing for {target}
+
+SUMMARY OF THE CONVERSATION
+{summary}
+
+Return JSON only, no prose, no code fence:
+{{"subjects": ["..."],
+  "confidence": "HIGH|MED|LOW",
+  "reject": null,
+  "why": "<one line: what in the summary decided it>"}}

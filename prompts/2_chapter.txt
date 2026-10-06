@@ -1,19 +1,45 @@
-Pick the chapter this question belongs to, from the catalogue below.
+Same conversation, same summary. The subject is settled. Now choose the chapter, or
+chapters, inside it.
+
+This is the second of three steps. The step after yours sees only the nodes inside
+the chapters you return, so a chapter you miss is a topic that can never be found.
 
 Rules
-1. Tag the question in front of you. You are given either what the student
-   asked (POSED) or what the bot taught (DELIVERED) - the label says which.
-2. Copy the subject and chapter names EXACTLY as written in the catalogue.
-   Do not invent, do not reword, do not fix spelling.
-3. The student's grade and board are CONTEXT, not a constraint. A grade-8
-   student doing complex numbers is doing complex numbers. Across this
-   dataset 14.5% of students work outside their own grade, so a chapter well
-   above or below their year is a legal answer whenever it is the one that
-   fits. Every chapter below is in scope for every student.
-4. If nothing fits, set "reject" and leave subject/chapter/tree empty:
-     NOT_ACADEMIC  chit-chat, app questions, a photo with no schoolwork in it
-     OUT_OF_SCOPE  real schoolwork no chapter covers - say what it was in "why"
-     UNKNOWN       nothing legible to go on
+1. Copy chapter names EXACTLY as listed. Do not invent, reword or fix spelling, even
+   where a name looks wrong - the tree's spelling is what the output is matched on.
+2. Return one chapter per distinct area the summary describes, not one per line of
+   it. Several entries about photosynthesis, stomata and the light reaction are all
+   Life Processes: one chapter. Entries about photosynthesis and about Broca's area
+   are two chapters.
+3. ORDER MATTERS. Put first the chapter that accounts for most of the conversation -
+   it becomes the conversation's primary tag. Judge by how much was covered, not by
+   what came first; a revision session often opens on one chapter and spends most of
+   its time in another.
+4. About 5% of conversations genuinely cross a chapter. Returning two when the
+   conversation covered two is correct. Returning two when it covered one is not.
+5. The class, board and tree order below RANK the candidates. They never rule any
+   out. A chapter well above or below the student's year is a legal and often
+   correct answer - filtering to the student's own year would lose 1 conversation
+   in 5 in this dataset.
+6. If no chapter here fits, set "reject" to OUT_OF_SCOPE and say in "why" what the
+   conversation was actually about, in enough detail to act on. Those rejections are
+   the list of chapters the syllabus is missing, so they are worth writing well.
 
-Catalogue - subject | chapter:
-{catalogue}
+Chapters available in {subject_list}:
+{chapters}
+
+---CACHE BOUNDARY---
+Student: class {grade}, board {board}, preparing for {target}
+Trees that fit this student best, in order: {preferred}
+
+SUMMARY OF THE CONVERSATION
+{summary}
+
+Return JSON only, no prose, no code fence:
+{{"chapters": [
+    {{"subject": "...",
+      "chapter": "...",
+      "covers": "<which part of the summary this chapter accounts for>",
+      "confidence": "HIGH|MED|LOW"}}],
+  "reject": null,
+  "why": "<one line>"}}

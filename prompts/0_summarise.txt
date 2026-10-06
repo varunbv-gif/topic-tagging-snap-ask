@@ -1,0 +1,97 @@
+You are reading one complete Snap-and-Ask tutoring conversation, first turn to last.
+A student photographed schoolwork; a tutor bot answered.
+
+Write ONE summary of the whole conversation.
+
+Read this before you start: nothing after you sees the conversation. Three further
+steps pick a subject, then a chapter, then an exact topic in a syllabus tree, and
+all three read only what you write here. A thing you leave out cannot be recovered.
+A name you generalise away cannot be matched. You are not compressing this
+conversation, you are transcribing what it was about.
+
+WHAT MAKES A SUMMARY USABLE
+
+Keep the real nouns. The tree is matched on them.
+  weak    "did some algebra"
+  better  "factorised a quadratic"
+  right   "factorised 4a^2 + 12ab + 9b^2 - 25c^2 as a perfect square minus a square,
+           applied x^2 - y^2 = (x+y)(x-y), divided by 2a+3b+5c"
+The third names the identity, the method and the expression. The first names nothing
+a syllabus tree can match.
+
+Keep every distinct thing. One "covered" entry per thing worked on. A single
+photographed question gives one entry. A revision session the night before an exam
+can give twenty-five, across two chapters. Do not pick the main one and drop the
+rest. Do not merge two different chapters into one line because they were adjacent.
+
+Do not split one thing into its steps. "Found the normal force, then the limiting
+friction, then the acceleration" is ONE entry - it is one problem solved in stages.
+Two different problems, or two different concepts explained in turn, are two entries.
+
+Separate the ask from the teaching. The student usually types nothing: the photo is
+the question, and the only record of it is the bot restating the problem. When the
+bot writes "Introduced question 15, isosceles trapezium ABCD, kite ABEF, angles
+FAB=43 AFE=137, find x and y", that IS the student's question - transcribe it as the
+ask, not as teaching. Where the bot answered something other than what was asked,
+say so in "notes"; that is a finding, not noise.
+
+Ignore completely. Tapped reply buttons ("Let's go", "Okay", "Sure thing", "Yes!"),
+requests about format or language ("explain step by step", "speak in Tamil", "use a
+simpler voice"), the bot's encouragement, and the student's thanks. None of it is
+subject matter, and treating any of it as a topic is a failure.
+
+Language. The conversation may be in English, Hindi, Tamil, Telugu or a mix, and the
+bot sometimes switches mid-answer. Summarise in English whatever the language, but
+keep proper nouns, technical terms and literary titles in their original form.
+
+THE CONVERSATION
+
+STUDENT TYPED:  {student}
+STUDENT WANTED: {wanted}
+BOT TAUGHT:     {taught}
+BOT REPLIES:    {response}
+EARLIER:        {earlier}
+
+BOT TAUGHT is the bot's own note on each exchange and is usually the cleanest signal.
+BOT REPLIES is what it actually said, which is longer and padded with encouragement.
+Where they disagree, BOT TAUGHT wins. Where BOT TAUGHT is thin or absent, read BOT
+REPLIES carefully - it may be the only record.
+
+WHAT TO RETURN
+
+JSON only. No prose, no code fence.
+
+{{"overview": "<2-4 sentences. What this conversation was, in content terms. Name the
+    chapter-level subject matter. Say if it spanned more than one area.>",
+  "covered": [
+    {{"what": "<one distinct thing worked on, one line, specific enough to match a
+        syllabus node>",
+      "detail": "<the expressions, identities, formulas, figures, reactions, dates,
+        names or terms involved - the raw material, not a paraphrase>",
+      "asked_or_taught": "asked|taught|both",
+      "weight": "<roughly how much of the conversation this accounted for: most,
+        some, or little>"}}
+  ],
+  "level": "<what the content itself suggests about school level, e.g. 'class 10
+    board-level coordinate geometry', or null if unclear>",
+  "ask_source": "student_text|bot_restatement",
+  "not_academic": null,
+  "notes": "<anything a reader of this summary alone would otherwise get wrong: the
+    bot answered a different question, the student was working above their year, the
+    photo was unreadable, two chapters were mixed. Otherwise null.>"}}
+
+BEFORE YOU RETURN, CHECK
+
+- Does every "covered" entry name something concrete enough that someone holding a
+  syllabus could find it? If an entry would match fifty different chapters, it is
+  too vague - put the real names in "detail".
+- Did you cover the end of the conversation as well as the start? Long conversations
+  drift, and the last ten exchanges are as real as the first ten.
+- Is anything in "covered" actually a reply button, a format request, or politeness?
+  Remove it.
+- Are two entries the same thing said twice? Merge them. Is one entry secretly two
+  different chapters? Split it.
+
+If the conversation is not schoolwork at all, set "not_academic" to one of
+"chit chat", "app question", "photo with no schoolwork", "illegible", leave "covered"
+empty, and still write an "overview" saying what it was instead.
