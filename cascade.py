@@ -297,19 +297,23 @@ def summarise(pay):
 
 
 def thin_summary(pay, s):
-    """The summary is the only thing the three tree calls ever see, so a summary that
-    lost half the conversation loses it permanently and silently. The bot's own
-    per-exchange notes are the yardstick: if it wrote twelve and the summary carries
-    two, something was dropped. Flagged, not failed - the call is still usable, it
-    just should not be trusted as complete."""
+    """The summary is the only thing the three tree calls ever see, so anything it drops
+    is lost permanently and silently. This flags the one case that is unambiguous.
+
+    It used to compare the number of things covered against the number of per-exchange
+    notes the bot wrote, on the theory that 2 against 17 meant something was dropped.
+    Measured on the 20-conversation sample against a per-question run that found the
+    same topics independently, that ratio runs from 0.5 to 8.0 on summaries that are
+    completely correct - the bot writes a note per exchange, and one topic routinely
+    spans several. The median was 3.0, so a 3x rule flagged 5 of 18 good summaries.
+    There is no threshold on that ratio that separates a dropped topic from a
+    conversation that simply took a while; the yardstick was wrong, so it is gone."""
     if s.get("not_academic"):
         return None
-    notes = len([x for x in (pay["taught"] or "").split(" || ") if x.strip()])
-    covered = len(s.get("covered") or [])
-    if not covered:
-        return "the summary covered nothing at all"
-    if notes >= 6 and covered * 3 < notes:
-        return f"{covered} covered against {notes} notes the bot wrote - likely incomplete"
+    if not (s.get("covered") or []):
+        notes = len([x for x in (pay["taught"] or "").split(" || ") if x.strip()])
+        if notes or pay["response"]:
+            return "the summary covered nothing, but the conversation has content"
     return None
 
 
