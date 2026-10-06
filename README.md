@@ -70,6 +70,51 @@ cache still hits.
 | `out3/` | scripts for the earlier one-tag-per-conversation run |
 | `out4/` | scripts for the cascade run, the artifacts and the docs |
 
+## Why four flat calls, and not one call per question
+
+Two methods were built and scored against each other on the same 20 conversations
+(`python ab_compare.py`):
+
+    A  per-question   split into questions, then tag each one     1 + 2n calls
+    B  four flat      summarise once, then subject/chapter/topic  4 calls
+
+                                        A        B
+      model calls                     172       80
+      calls per conversation          8.6      4.0
+      tagged to a chapter              18       18
+      distinct topics recorded         45       47
+
+      same subject                  18/18     100%
+      same primary chapter          17/18      94%
+      chapter-set overlap (mean)              1.00
+      topic-set overlap (mean)                0.94
+
+**B ships.** The two methods identified the *identical set of chapters* on every
+conversation - an overlap of 1.00, not an average of near misses. The single
+primary-tag difference is `45759289`, a six-chapter revision sweep where no chapter
+dominates and both methods list the same six; which one leads is arbitrary either
+way. B does that for 2.1x fewer calls, and does it in a flat 4 per conversation
+whether the conversation ran one turn or forty, where A ranged from 3 to 51.
+
+The count of distinct things each method found also matched exactly - 1 against 1,
+4 against 4, 16 against 16, 25 against 25. One rich summary carried a 40-exchange,
+two-chapter revision session without losing a topic.
+
+**What this does not say.** Agreement is not accuracy: neither arm has been scored
+against a human-labelled reference, so this settles which method to ship, not
+whether either is right. And both arms were answered by a human following the
+prompts, because no API key was available - so it shows the architecture carries
+the information, not that a given model writes a summary that rich unprompted.
+That is the one experiment still worth running, and `ab_compare.py` scores it the
+moment both arms have been run with a key.
+
+A's implementation is in git history at `892c6dc` if the summary ever proves too
+thin in practice:
+
+```bash
+git checkout 892c6dc -- cascade.py prompts/
+```
+
 ## Design decisions worth knowing
 
 **Rank, never filter.** The student's grade and board order the candidate trees;
