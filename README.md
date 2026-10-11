@@ -77,12 +77,20 @@ cache still hits.
 
 | Path | What it is |
 |---|---|
-| `cascade.py` | the pipeline, all five stages |
+| `cascade.py` | the pipeline, all six stages |
 | `trees.py` | parses tree names into a grade band and a family |
-| `prompts/` | the three prompts, verbatim, as sent |
+| `prompts/` | the four prompts, verbatim, as sent |
 | `sql/` | the extraction queries, `01` to `09` (BigQuery) |
-| `out3/` | scripts for the earlier one-tag-per-conversation run |
-| `out4/` | scripts for the cascade run, the artifacts and the docs |
+| `out2/` | the topic tree - the only data checked in |
+| `out4/build_worked.py` | pulls one run apart, call by call, with real values |
+| `out4/make_walkthrough.py` | the same, as a CSV |
+| `make_cascade_doc.js` | the methodology document |
+| `ab_compare.py` | scores two runs against each other |
+| `build_goldset.py`, `score_goldset.py` | the accuracy measurement that has not been done yet |
+
+Everything from the superseded per-question design, and the one-off scripts used
+while exploring the data, was removed in `f500515` and the commit after it. They
+are in history if ever needed.
 
 ## Why four flat calls, and not one call per question
 
