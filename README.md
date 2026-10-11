@@ -86,6 +86,9 @@ cache still hits.
 | `out4/make_walkthrough.py` | the same, as a CSV |
 | `make_cascade_doc.js` | the methodology document |
 | `ab_compare.py` | scores two runs against each other |
+| `out4/funnel_body.html` | the page template - data-free, `__DATA__` placeholder |
+| `out4/build_funnel.py` | turns a run into that page's data |
+| `out4/build_page.py` | inlines the two into one self-contained HTML file |
 | `build_goldset.py`, `score_goldset.py` | the accuracy measurement that has not been done yet |
 
 Everything from the superseded per-question design, and the one-off scripts used
@@ -137,8 +140,19 @@ Then the reporting tools work off that run:
 python out4/build_worked.py            # five conversations, every call, real values
 python out4/make_walkthrough.py        # the same five as a CSV
 node make_cascade_doc.js               # the methodology document
-python ab_compare.py                   # if two runs exist to compare
+python out4/build_funnel.py            # the funnel page's data
+python out4/build_page.py funnel       # -> conversation_funnel.html, one file
+python ab_compare.py runs/a runs/b     # if two runs exist to compare
 ```
+
+### Why the built pages are not committed
+
+`conversation_funnel.html` is a single self-contained file that opens from a disk,
+a web server, or anywhere else - no host required. It is not in this repository
+because it lists every conversation of the run: a fragment of each conversation id,
+a fragment of each student id, their class, board and what they worked on. The
+template that builds it carries none of that and is committed; the assembled page
+is yours to put wherever it should live.
 
 ## Design decisions worth knowing
 

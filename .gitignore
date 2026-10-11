@@ -75,3 +75,8 @@ chapter_ids.txt
 !out2/
 !out2/concepts.json
 !out2/nodes_by_chapter.json
+
+# the assembled pages - they list every conversation of a run
+conversation_funnel.html
+cascade_impact.html
+topic_mapping_explorer.html
