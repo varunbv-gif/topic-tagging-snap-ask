@@ -17,9 +17,15 @@ conversation - which is why the summary has to be rich.
     python cascade.py --dry-run 0b427a40      # payload + every prompt, no calls
     python cascade.py --limit 5               # run 5 conversations
     python cascade.py                         # run all of them
-    python cascade.py --self-check            # the code stages, no model needed
+    python cascade.py --self-check            # the code stages, no key needed
+
+Gemini only. GEMINI_API_KEY is required to call anything. CASCADE_MODEL sets the
+model for the three narrowing calls (default gemini-2.5-flash); CASCADE_SUMMARY_MODEL
+sets the one for the summary (default gemini-2.5-pro), which is the call everything
+else depends on - nothing after it sees the conversation again.
 """
-import argparse, collections, csv, io, json, os, re, sys, time, urllib.request
+import argparse, collections, csv, io, json, os, re, sys, time
+import urllib.error, urllib.request
 
 # Tamil, Devanagari and the reply-button emoji all appear in this data; the Windows
 # console is cp1252 and will not print them.
@@ -184,12 +190,45 @@ def save_cache():
     json.dump(CACHE, open(CACHE_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
 
-def call_model(prompt, cached_prefix=None, max_tokens=2000, retries=3):
-    """One function, both providers. ANTHROPIC_API_KEY or GEMINI_API_KEY.
+# Gemini. CASCADE_MODEL drives the three narrowing calls; the summary gets its own
+# setting because it is the one call the whole pipeline rests on - nothing after it
+# ever sees the conversation again, so a cheap thin summary is unrecoverable, while a
+# cheap subject or chapter pick is a choice from a short list.
+MODEL = os.environ.get("CASCADE_MODEL", "gemini-2.5-flash")
+SUMMARY_MODEL = os.environ.get("CASCADE_SUMMARY_MODEL", "gemini-2.5-pro")
+API = "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent"
 
-    cached_prefix is the block that is identical on every call (stage 2's 2,032-row
-    catalogue). Anthropic caches it explicitly; Gemini's implicit cache picks it up
-    from the shared prefix, which is why it goes first.
+
+class ModelError(RuntimeError):
+    """A call that came back, but with nothing usable in it."""
+
+
+def gemini_text(payload):
+    """Pull the text out, or say why there isn't any. Gemini can return 200 with no
+    candidate at all (prompt blocked), or a candidate with no parts (output blocked,
+    or stopped at the token limit before writing anything)."""
+    if block := (payload.get("promptFeedback") or {}).get("blockReason"):
+        raise ModelError(f"the prompt was blocked: {block}")
+    cands = payload.get("candidates") or []
+    if not cands:
+        raise ModelError("no candidate returned")
+    c = cands[0]
+    parts = (c.get("content") or {}).get("parts") or []
+    text = "".join(p.get("text", "") for p in parts)
+    if not text.strip():
+        raise ModelError(f"empty response, finishReason={c.get('finishReason')}"
+                         + ("  - raise max_tokens" if c.get("finishReason") == "MAX_TOKENS" else ""))
+    if c.get("finishReason") == "MAX_TOKENS":
+        raise ModelError("response cut off at max_tokens - the JSON will be truncated")
+    return text
+
+
+def call_model(prompt, cached_prefix=None, max_tokens=2000, retries=4, model=None):
+    """One Gemini call.
+
+    cached_prefix is the block that is identical across every conversation reaching
+    this step - the 30 subjects, or one subject's chapters. Gemini caches implicitly
+    on a shared leading prefix, so it goes first and the variable part goes last.
     """
     k = cache_key(prompt, cached_prefix)
     if k in CACHE:
@@ -202,42 +241,37 @@ def call_model(prompt, cached_prefix=None, max_tokens=2000, retries=3):
             f.write(((cached_prefix + "\n\n") if cached_prefix else "") + prompt)
         return PENDING_JSON
 
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        raise SystemExit("set GEMINI_API_KEY (or use --dry-run / --offline)")
+
     CALLS["total"] += 1
-    if key := os.environ.get("ANTHROPIC_API_KEY"):
-        blocks = []
-        if cached_prefix:
-            blocks.append({"type": "text", "text": cached_prefix,
-                           "cache_control": {"type": "ephemeral"}})
-        blocks.append({"type": "text", "text": prompt})
-        body = {"model": os.environ.get("CASCADE_MODEL", "claude-sonnet-5"),
-                "max_tokens": max_tokens,
-                "messages": [{"role": "user", "content": blocks}]}
-        req = urllib.request.Request(
-            "https://api.anthropic.com/v1/messages",
-            data=json.dumps(body).encode(), method="POST",
-            headers={"content-type": "application/json", "x-api-key": key,
-                     "anthropic-version": "2023-06-01"})
-        pick = lambda r: r["content"][0]["text"]
-    elif key := os.environ.get("GEMINI_API_KEY"):
-        model = os.environ.get("CASCADE_MODEL", "gemini-2.5-flash")
-        text = f"{cached_prefix}\n\n{prompt}" if cached_prefix else prompt
-        body = {"contents": [{"parts": [{"text": text}]}],
-                "generationConfig": {"maxOutputTokens": max_tokens,
-                                     "responseMimeType": "application/json"}}
-        req = urllib.request.Request(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-            data=json.dumps(body).encode(), method="POST",
-            headers={"content-type": "application/json", "x-goog-api-key": key})
-        pick = lambda r: r["candidates"][0]["content"]["parts"][0]["text"]
-    else:
-        raise SystemExit("set ANTHROPIC_API_KEY or GEMINI_API_KEY (or use --dry-run)")
+    body = {"contents": [{"parts": [{"text": f"{cached_prefix}\n\n{prompt}"
+                                             if cached_prefix else prompt}]}],
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0,
+                                 "responseMimeType": "application/json"}}
+    req = urllib.request.Request(
+        API.format(model or MODEL), data=json.dumps(body).encode(), method="POST",
+        headers={"content-type": "application/json", "x-goog-api-key": key})
 
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-                CACHE[k] = pick(json.load(r))
-                return CACHE[k]
-        except Exception as e:                                    # rate limit, 5xx, timeout
+            with urllib.request.urlopen(req, timeout=180) as r:
+                payload = json.load(r)
+            usage = payload.get("usageMetadata") or {}
+            CALLS["in_tokens"] += usage.get("promptTokenCount", 0)
+            CALLS["out_tokens"] += usage.get("candidatesTokenCount", 0)
+            CALLS["cached_tokens"] += usage.get("cachedContentTokenCount", 0)
+            CACHE[k] = gemini_text(payload)
+            return CACHE[k]
+        except urllib.error.HTTPError as e:
+            # 429 and 5xx are worth waiting out; 400 and 403 will not improve
+            if e.code not in (408, 429, 500, 502, 503, 504) or attempt == retries - 1:
+                raise SystemExit(f"Gemini returned {e.code}: "
+                                 f"{e.read()[:400].decode('utf-8', 'replace')}")
+            CALLS["retry"] += 1
+            time.sleep(2 ** attempt)
+        except (ModelError, urllib.error.URLError, TimeoutError, json.JSONDecodeError):
             if attempt == retries - 1:
                 raise
             CALLS["retry"] += 1
@@ -282,7 +316,7 @@ def p_summarise(pay):
 
 
 def summarise(pay):
-    raw = call_model(p_summarise(pay), max_tokens=4000)
+    raw = call_model(p_summarise(pay), max_tokens=8000, model=SUMMARY_MODEL)
     if raw == PENDING_JSON:
         return None
     s = as_json(raw, {})

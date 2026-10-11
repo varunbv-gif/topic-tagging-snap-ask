@@ -50,10 +50,24 @@ python cascade.py --cids out4/sample20.json # a named subset
 python cascade.py                           # all of them
 ```
 
-Provider is one function — set `ANTHROPIC_API_KEY` or `GEMINI_API_KEY`, and
-`CASCADE_MODEL` to pick the model. Replies are cached by prompt hash, so a
-crashed or rate-limited run resumes instead of paying twice, and `--offline`
-writes cache misses to `out4/pending/` so a run can be completed by hand.
+Gemini only. `GEMINI_API_KEY` is required to call anything:
+
+| Variable | Default | Used for |
+|---|---|---|
+| `GEMINI_API_KEY` | — | required |
+| `CASCADE_SUMMARY_MODEL` | `gemini-2.5-pro` | the summary, call 1 |
+| `CASCADE_MODEL` | `gemini-2.5-flash` | subject, chapter, topic |
+
+The summary gets the stronger model on purpose. It is the one call the rest of
+the pipeline rests on — nothing after it ever sees the conversation again, so a
+thin summary is unrecoverable, while a weak subject or chapter pick is a choice
+from a short list that the validator still checks.
+
+Replies are cached by prompt hash, so a crashed or rate-limited run resumes
+instead of paying twice, and `--offline` writes cache misses to `out4/pending/`
+so a run can be completed by hand. **Clear `out4/cache.json` before the first
+real run** or it will serve the hand-written answers back instead of calling
+anything.
 
 Stage 2's 2,031-row catalogue is byte-identical on every call and goes in the
 cached prefix; the student's tree preference rides in the variable tail so the
