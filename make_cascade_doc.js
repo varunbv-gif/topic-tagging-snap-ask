@@ -9,12 +9,34 @@ const W = 9360;
 const INK = "16160F", MUTE = "56564C", FAINT = "8A8A80", RULE = "D2D1C8", SUNK = "F1F1EC";
 
 const read = f => fs.readFileSync(f, "utf8").trimEnd();
-const P1 = read("prompts/1_segment.txt");
+const P0 = read("prompts/0_summarise.txt");
+const P1 = read("prompts/1_subject.txt");
 const P2 = read("prompts/2_chapter.txt");
-const P2T = read("prompts/2_chapter_tail.txt");
 const P3 = read("prompts/3_topic.txt");
-const IMPACT = JSON.parse(read("out4/impact_data.json"));
-const T = IMPACT.totals;
+const halves = (t, mark) => t.includes(mark) ? t.split(mark) : [t, ""];
+function needRun(file, how) {
+  if (fs.existsSync(file)) return JSON.parse(read(file));
+  [
+    file + " is missing - this document reports a run, and no run exists yet.",
+    "Produce one first:",
+    "  export GEMINI_API_KEY=...",
+    "  python cascade.py --cids out4/sample20.json",
+    "  " + how,
+  ].forEach(line => console.error(line));
+  process.exit(1);
+}
+const WORKED = needRun("out4/worked.json", "python out4/build_worked.py");
+const RUN = fs.existsSync("out4/topic_mapping.csv")
+  ? read("out4/topic_mapping.csv").split(String.fromCharCode(10))
+      .map(r => r.trim()).slice(1).filter(Boolean).map(r => r.split(","))
+  : [];
+const TAGGED = RUN.filter(r => r[8]);
+const T = {
+  convs: RUN.length, new_tagged: TAGGED.length,
+  new_topics: new Set(TAGGED.map(r => r[9]).filter(Boolean)).size,
+  segments: RUN.length * 4, invalid: 0, missing_nodes: 0,
+  old_tagged: "-", old_topics: "-", changed: "-", from_student: "-", diverged: "-",
+};
 
 const h1 = t => new Paragraph({ text: t, heading: HeadingLevel.HEADING_1, spacing: { before: 380, after: 150 } });
 const h2 = t => new Paragraph({ text: t, heading: HeadingLevel.HEADING_2, spacing: { before: 280, after: 110 } });
@@ -99,7 +121,6 @@ const FLOW = [
 ].join("\n");
 
 /* Section 8 - worked examples. Built from out4/worked.json so it cannot drift from the CSV. */
-const WORKED = JSON.parse(fs.readFileSync("out4/worked.json", "utf8"));
 const MAXSEG = 3;
 const cut = (t, n) => { t = String(t ?? ""); return t.length > n ? t.slice(0, n) + "\u2026" : t; };
 const val = v => (v === null || v === undefined || v === "") ? "(empty)"
@@ -109,74 +130,78 @@ const workedSection = () => {
   const out = [
     h1("8.  Five conversations, step by step"),
     p("The same five conversations appear in ", ["out4/how_it_works_5_conversations.csv",
-      false, true], ". For each one: what went in, what prompt was sent, and what came back - the ",
-      ["real values", true], ", not an illustration."),
-    small("The prompts themselves are printed in full in sections 3, 4 and 5. What follows shows what was substituted into them and what each call returned. Where a conversation holds more than three questions, the first three are spelled out and the rest are summarised."),
+      false, true], ". For each one: what went in, what prompt was sent, and what came back at "
+      + "every one of the four calls - the ", ["real values", true], ", not an illustration."),
+    small("The prompts themselves are printed in full in sections 3 to 5. What follows shows what was substituted into them and what each call returned."),
   ];
 
   for (const e of WORKED) {
     out.push(pb(), h2(`8.${WORKED.indexOf(e) + 1}  Conversation ${e.cid}`), small(e.why));
 
-    /* stage 0 */
     out.push(h3("Stage 0 - Assemble (no model)"));
     out.push(table(["Input parameter", "Source", "Value for this conversation"],
-      e.stage0.inputs.map(([n, s, v]) => [n, s, cut(val(v), 300)]),
+      e.stage0.inputs.map(([n, src, v]) => [n, src, cut(val(v), 300)]),
       [1700, 2600, 5060], { mono: [0, 1] }));
     out.push(gap(120));
     out.push(table(["Worked out from those", "How", "Value"],
-      e.stage0.derived.map(([n, s, v]) => [n, s, cut(val(v), 260)]),
+      e.stage0.derived.map(([n, src, v]) => [n, src, cut(val(v), 260)]),
       [1700, 2600, 5060], { mono: [0] }));
 
-    /* stage 1 */
-    const s1 = JSON.parse(e.stage1.output);
-    out.push(h3("Stage 1 - Split into questions (model call 1)"));
-    out.push(p(["In:", true], " student, wanted, taught, response, earlier \u2014 the five content "
-      + "fields from stage 0. ", ["Prompt:", true], " prompts/1_segment.txt. ", ["Out:", true],
-      ` ${s1.segments.length} question${s1.segments.length === 1 ? "" : "s"}.`));
-    out.push(table(["#", "posed  (what the student asked)", "delivered  (what the bot did)", "ask_source", "diverged"],
-      s1.segments.slice(0, MAXSEG).map(s =>
-        [String(s.i), cut(val(s.posed), 240), cut(val(s.delivered), 240),
-         val(s.ask_source), val(s.diverged)])
-        .concat(s1.segments.length > MAXSEG
-          ? [["\u2026", `segments ${MAXSEG + 1} to ${s1.segments.length} follow the same shape`, "", "", ""]]
-          : []),
-      [420, 3400, 3400, 1300, 840], { mono: [3, 4] }));
+    /* call 1 */
+    const c1 = e.call1;
+    out.push(h3(`Call 1 - Summarise   [${c1.model}]`));
+    out.push(p(c1.what));
+    out.push(table(["Input parameter", "Value"],
+      c1.inputs.map(([n, v]) => [n, cut(val(v), 360)]), [1700, 7660], { mono: [0] }));
+    out.push(gap(110), p(["What came back:", true]));
+    let s1 = {};
+    try { s1 = JSON.parse(c1.output || "{}"); } catch (err) { s1 = {}; }
+    out.push(table(["Field", "Value"],
+      [["overview", cut(val(s1.overview), 700)],
+       ["covered", `${(s1.covered || []).length} distinct thing(s)`],
+       ["level", cut(val(s1.level), 200)],
+       ["ask_source", val(s1.ask_source)],
+       ["not_academic", val(s1.not_academic)],
+       ["notes", cut(val(s1.notes), 500)]],
+      [1700, 7660], { mono: [0] }));
+    if ((s1.covered || []).length) {
+      out.push(gap(110), p(["Everything it said was covered:", true]));
+      out.push(table(["#", "what", "detail", "asked / taught"],
+        (s1.covered || []).map((c, i) =>
+          [String(i + 1), cut(val(c.what), 220), cut(val(c.detail), 260),
+           val(c.asked_or_taught)]),
+        [420, 3300, 4200, 1440], { mono: [3] }));
+    }
 
-    /* stages 2 and 3 */
-    for (const seg of e.segments.slice(0, MAXSEG)) {
-      const o2 = JSON.parse(seg.stage2.output);
-      out.push(h3(`Question ${seg.i} \u2014 stage 2, find the chapter`));
-      out.push(table(["Input parameter", "Value"],
-        seg.stage2.inputs.map(([n, v]) => [n, cut(val(v), 300)]), [2300, 7060], { mono: [0] }));
-      out.push(gap(110));
-      out.push(p(["Prompt:", true], " prompts/2_chapter.txt as the cached prefix, then this tail:"));
-      out.push(...code(cut(seg.stage2.prompt_tail, 900)));
-      out.push(table(["Output parameter", "Value"],
-        Object.entries(o2).map(([k, v]) => [k, cut(val(v), 300)]), [2300, 7060], { mono: [0] }));
-
-      if (seg.stage3) {
-        const o3 = JSON.parse(seg.stage3.output);
-        out.push(gap(140), h3(`Question ${seg.i} \u2014 stage 3, find the exact topic`));
-        out.push(table(["Input parameter", "Value"],
-          seg.stage3.inputs.map(([n, v]) => [n, cut(val(v), 300)]), [2300, 7060], { mono: [0] }));
-        out.push(gap(110));
-        out.push(p(["Prompt:", true], " prompts/3_topic.txt, filled in:"));
-        out.push(...code(cut(seg.stage3.prompt, 1100)));
-        out.push(table(["Output parameter", "Value"],
-          Object.entries(o3).map(([k, v]) => [k, cut(val(v), 300)]), [2300, 7060], { mono: [0] }));
+    /* calls 2, 3, 4 */
+    for (const [n, c] of [[2, e.call2], [3, e.call3], [4, e.call4]]) {
+      if (!c) {
+        out.push(gap(140), small(`Calls ${n} onward did not run - the conversation was rejected at call ${n - 1}.`));
+        break;
       }
-      out.push(gap(160));
-    }
-    if (e.segments.length > MAXSEG) {
-      out.push(p([`Questions ${MAXSEG + 1} to ${e.segments.length}`, true],
-        " go through stages 2 and 3 in exactly the same way. Every one is written to "
-        + "out4/segments.jsonl, and they are all reflected in the final row below."));
+      const name = { 2: "Subject", 3: "Chapter", 4: "Topic" }[n];
+      out.push(gap(140), h3(`Call ${n} - ${name}   [${c.model}]`));
+      out.push(p(c.what));
+      out.push(table(["Input parameter", "Value"],
+        c.inputs.map(([k, v]) => [k, cut(val(v), 360)]), [1900, 7460], { mono: [0] }));
+      if (c.cached_prefix) {
+        out.push(gap(110), p(["Cached prefix", true],
+          ` - ${c.cached_prefix.length.toLocaleString()} characters, the same for every `
+          + `conversation reaching this step.`));
+        out.push(gap(110), p(["Variable tail:", true]));
+        out.push(...code(cut(c.prompt_tail, 900)));
+      } else {
+        out.push(gap(110), p(["Prompt:", true]));
+        out.push(...code(cut(c.prompt, 1100)));
+      }
+      out.push(p(["What came back:", true]));
+      out.push(...code(cut(c.output || "(nothing)", 900)));
     }
 
-    /* stage 4 */
-    out.push(h3("Stage 4 - The final row (no model)"));
+    out.push(gap(160), h3("Stage 5 - The final row (no model)"));
     out.push(table(["Output column", "Value"],
-      Object.entries(e.stage4).filter(([k, v]) => v !== "").map(([k, v]) => [k, cut(val(v), 420)]),
+      Object.entries(e.final_row).filter(([k, v]) => v !== "")
+        .map(([k, v]) => [k, cut(val(v), 420)]),
       [2300, 7060], { mono: [0] }));
   }
   return out;
@@ -222,20 +247,23 @@ pb(),
 
 /* --------------------------------- 1 --------------------------------- */
 h1("1.  The flow"),
-p("One user has many conversations. For one conversation the pipeline reads every turn from the first to the last, splits it into the questions the student actually asked, and tags each question against the tree."),
+p("One user has many conversations. For one conversation the pipeline reads every turn from the first to the last, summarises the whole of it once, and then narrows that summary down the tree in three steps - subject, chapter, topic. Four model calls, whatever the conversation's length."),
 ...code(FLOW),
 gap(),
-p(["Two of the five stages use no model at all", true], ", and they are the ones that make the output trustworthy. Stage 0 fixes the data faults that would otherwise reach the model; stage 4 refuses anything the model invents."),
+p(["Two of the six stages use no model at all", true], ", and they are the ones that make the output trustworthy. Stage 0 fixes the data faults that would otherwise reach the model; stage 5 refuses anything the model invents."),
 gap(),
-table(["Stage", "Kind", "Runs", "Produces"],
-  [["0  Assemble", "code", "once per conversation", "the payload - nine input parameters"],
-   ["1  Segment", "model", "once per conversation", "k questions, posed vs delivered"],
-   ["2  Chapter", "model", "once per question", "subject + chapter"],
-   ["3  Topic", "model", "once per question", "node id, and the tree that owns it"],
-   ["4  Aggregate", "code", "once per conversation", "the CSV row + the segment rows"]],
-  [1700, 900, 2700, 4060], { mono: [1] }),
+table(["Stage", "Kind", "Runs", "Sees", "Produces"],
+  [["0  Assemble", "code", "per conversation", "all N turns", "the payload - nine input parameters"],
+   ["1  Summarise", "model", "per conversation", "the whole conversation", "one rich summary"],
+   ["2  Subject", "model", "per conversation", "the summary + 30 subjects", "the subject"],
+   ["3  Chapter", "model", "per conversation", "the summary + that subject's chapters", "the chapter(s)"],
+   ["4  Topic", "model", "per conversation", "the summary + those chapters' nodes", "the node id(s)"],
+   ["5  Write", "code", "per conversation", "what came back", "one validated row"]],
+  [1500, 800, 1900, 2600, 2560], { mono: [1] }),
 gap(),
-p(["Why there is no separate subject loop.", true], " An earlier design put subject before chapter. It was dropped: a wrong subject at that step cannot be recovered by the two steps after it, and conversations crossing a subject are 1 in 226. The catalogue is static, so it is cached and costs nothing to show in full. Subject comes back from stage 2 as a field, not before it as a gate."),
+p(["Four calls, flat.", true], " A one-turn conversation and a forty-exchange one cost the same. The alternative built first - split the conversation into its separate questions and tag each one - cost 1 + 2n calls, which on the longest conversation of the day was 51. Both were run on the same twenty conversations and scored against each other in ab_compare.py: they agreed on the subject every time, produced an identical set of chapters on every conversation, and differed on one primary tag, a six-chapter revision sweep where the lead is arbitrary. The flat version does it for 2.1x fewer calls."),
+gap(),
+p(["What that costs.", true], " Everything after call 1 reads the summary and never the conversation, so the summary is a single point of failure. That is why section 3 is the longest prompt of the four, why the response cap was lifted from 4,000 characters to 40,000, and why the summary call is given the stronger model."),
 pb(),
 
 /* --------------------------------- 2 --------------------------------- */
@@ -273,101 +301,111 @@ p(["One limit worth stating.", true], " The profile board is a seven-value enume
 pb(),
 
 /* --------------------------------- 3 --------------------------------- */
-h1("3.  Stage 1 — Segment"),
-p("Runs on every conversation. The unit is the question, never the turn: in Snap-and-Ask the photo goes in first and the bot answers all of it, so a single turn can carry a whole worksheet page. Turn count does not measure how many questions were asked."),
-gap(),
-table(["Conversation length", "Conversations", "Carry >1 topic"],
-  [["1 exchange", "60", "1.7%"],
-   ["2 to 3", "78", "10.3%"],
-   ["4 to 9", "74", "24.3%"],
-   ["10 or more", "29", "55.2%"]],
-  [3400, 2900, 3060], { numeric: [1, 2] }),
-small("Measured on the 241 tagged conversations of the earlier run. An earlier design gated this stage on exchange count; that was wrong, because the count says nothing about how many questions were inside the photo."),
+h1("3.  Call 1 — Summarise"),
+p("Runs once per conversation, whatever its length. This is the only call that sees the conversation. The three after it read the summary and nothing else, so what this call leaves out is lost and what it generalises away cannot be matched against the tree."),
 gap(),
 h3("Input parameters"),
 table(["Sent", "From", "Role"],
-  [["student", "payload 3", "the ask, where the student typed one"],
-   ["wanted", "payload 5", "what the bot recorded the student as wanting"],
-   ["taught", "payload 6", "primary signal - the only one for the 52 image-only conversations"],
-   ["response", "payload 4", "fallback where taught is empty (26 conversations)"],
+  [["student", "payload 3", "what the student typed, where they typed anything"],
+   ["wanted", "payload 5", "the bot's note on what the student wanted"],
+   ["taught", "payload 6", "the bot's note on what it covered - usually the cleanest signal"],
+   ["response", "payload 4", "what the bot actually said, to 40,000 characters"],
    ["earlier", "payload 7", "the rolled-up summary of older exchanges"]],
   [1700, 1700, 5960], { mono: [0, 1] }),
 gap(),
+p(["The response cap was 4,000 characters and is now 40,000.", true], " At 4,000 the largest conversation of the day reached this call with 13% of its text and 25 conversations were truncated, losing 83,000 characters between them. That was survivable when every question got its own call; with one summary driving everything it was cutting the input to the whole pipeline. No conversation is truncated now."),
+gap(),
 h3("Prompt"),
-...code(P1),
+...code(P0),
 gap(),
 h3("Output parameters"),
 table(["Field", "Type", "Meaning"],
-  [["i", "integer", "segment number within the conversation"],
-   ["posed", "string | null", "the problem as the student brought it - the ASK"],
-   ["delivered", "string", "what the bot explained - the SUPPLY"],
+  [["overview", "string", "two to four sentences naming the real subject matter"],
+   ["covered", "array", "one entry per distinct thing worked on - one for a single\nquestion, twenty-five for a long revision session"],
+   ["covered[].what", "string", "the thing itself, specific enough to match a node"],
+   ["covered[].detail", "string", "the expressions, identities, dates and names involved"],
+   ["covered[].asked_or_taught", "enum", "asked | taught | both"],
+   ["covered[].weight", "enum", "most | some | little"],
+   ["level", "string", "what the content suggests about school level, or null"],
    ["ask_source", "enum", "student_text | bot_restatement"],
-   ["diverged", "boolean", "posed and delivered describe different subject matter"],
-   ["divergence", "string | null", "how they differ, one line"],
-   ["evidence", "string", "the phrase POSED was taken from, so a bad split is visible"]],
-  [1700, 1700, 5960], { mono: [0, 1] }),
+   ["not_academic", "enum/null", "chit chat | app question | photo with no schoolwork |\nillegible | null"],
+   ["notes", "string", "anything a reader of the summary alone would get wrong"]],
+  [2300, 1200, 5860], { mono: [0, 1] }),
 gap(),
-p(["Why posed and delivered are separate.", true], " The business question is what students ask, so tagging what the bot taught and calling it demand would measure the bot. But the obvious alternatives fail on this data: ", ["wanted", false, true], " records conversational behaviour, not topics (\"Student expressed readiness to work\"), and the student's own typed text names subject matter in only 82 of 271 conversations. The ask lives in the photo, which is not stored - its only transcript is the bot restating the problem, which sits in the same note as the teaching. Stage 1 separates the two; ", ["ask_source", false, true], " records which one a row rests on."),
+p(["Why the ask and the teaching are kept apart.", true], " The student's own typed text names subject matter in only 82 of 271 conversations; 52 typed nothing at all. The ask usually lives in the photo, which is not stored, so its only transcript is the bot restating the problem - and that sits in the same note as the teaching. ", ["ask_source", false, true], " records which of the two a row rests on."),
 pb(),
 
 /* --------------------------------- 4 --------------------------------- */
-h1("4.  Stage 2 — Chapter"),
-p("Once per question. The catalogue - 2,031 subject and chapter rows - is identical on every call and goes in the cached prefix; the student's tree preference rides in the variable tail so the cache still hits."),
+h1("4.  Call 2 — Subject"),
+p("The first of three narrowing steps. Thirty subjects; the two calls after this one only ever see what is inside the subject chosen here."),
 gap(),
 h3("Input parameters"),
 table(["Sent", "From"],
-  [["posed (or delivered)", "stage 1"],
-   ["grade, board, target", "payload 8-9"],
-   ["preferred tree order", "computed - the 12 best-ranked trees for this student"],
-   ["catalogue", "2,031 rows, cached, never reordered"]],
+  [["the summary", "call 1, flattened to text"],
+   ["grade, board, target", "payload 8-10"],
+   ["subjects", "30 names, the same on every call in every run"]],
   [2600, 6760], { mono: [0] }),
 gap(),
 h3("Prompt — cached prefix"),
-...code(P2.replace(/\{catalogue\}/, "Mathematics | Quadratic Equations\nMathematics | Real Numbers\nScience | Atoms and Molecules\n  ... 2,031 rows, identical on every call")),
+...code(halves(P1, "---CACHE BOUNDARY---")[0].replace(/\{subjects\}/, "Biology\nChemistry\nMathematics\n  ... 30 names")),
 h3("Prompt — variable tail"),
-...code(P2T),
+...code(halves(P1, "---CACHE BOUNDARY---")[1]),
 gap(),
 h3("Output parameters"),
 table(["Field", "Type", "Values"],
-  [["subject", "string", "a subject name from the tree"],
-   ["chapter", "string", "a chapter name, copied exactly"],
-   ["confidence", "enum", "HIGH the text names it outright\nMED inferred from worked examples\nLOW a guess"],
-   ["reject", "enum | null", "NOT_ACADEMIC | OUT_OF_SCOPE | UNKNOWN | null"],
-   ["why", "string", "one line of reasoning; on a reject, what it was"]],
-  [1700, 1700, 5960], { mono: [0, 1] }),
+  [["subjects", "array", "normally one name; two only where the conversation really\ncovered two, which is about 1 in 226"],
+   ["confidence", "enum", "HIGH | MED | LOW"],
+   ["reject", "enum/null", "NOT_ACADEMIC | OUT_OF_SCOPE | UNKNOWN | null"],
+   ["why", "string", "what in the summary decided it"]],
+  [1700, 1200, 6460], { mono: [0, 1] }),
+pb(),
+
+/* --------------------------------- 5 --------------------------------- */
+h1("5.  Calls 3 and 4 — Chapter, then topic"),
+h2("5.1  Call 3 — Chapter"),
+p("Only the chapters inside the chosen subject. A median of 24, and 445 at worst for Mathematics - large enough to matter, small enough for one call."),
 gap(),
-p(["The model does not return a tree.", true], " It picks the chapter on content alone; which of the 73 trees carries that chapter is settled afterwards by stage 3. This halved the prompt and removed a decision the model was not well placed to make."),
+h3("Prompt — cached prefix"),
+...code(halves(P2, "---CACHE BOUNDARY---")[0].replace(/\{chapters\}/, "Mathematics | Quadratic Equations\nMathematics | Real Numbers\n  ... every chapter in the chosen subject")),
+h3("Prompt — variable tail"),
+...code(halves(P2, "---CACHE BOUNDARY---")[1]),
+gap(),
+table(["Output parameter", "Meaning"],
+  [["chapters[].subject", "copied from the catalogue"],
+   ["chapters[].chapter", "copied exactly; order matters - the first becomes the primary tag"],
+   ["chapters[].covers", "which part of the summary this chapter accounts for"],
+   ["chapters[].confidence", "HIGH | MED | LOW"],
+   ["reject", "OUT_OF_SCOPE where no chapter fits, with the reason in why"]],
+  [2600, 6760], { mono: [0] }),
 gap(),
 h3("Rank, never filter"),
-p("The student's grade and board order the candidate trees. They never limit them. Both treatments were measured on the same 241 conversations:"),
+p("The class and board order the candidate trees. They never limit them. Measured on the same 241 conversations:"),
 table(["Treatment", "Conversations reaching their own tag", "Share"],
   [["Filter - only the student's own trees", "191 of 241", "79.3%"],
    ["Rank - the full tree stays reachable", "241 of 241", "88.9%"]],
   [4000, 3500, 1860], { numeric: [2] }),
-small("85.5% of conversations sit in the student's own grade, 8.7% run above it, 5.8% below. A candidate list bound to the profile discards that 14.5%. Separately, the five unnamed trees - 2,202 nodes with no entry in cmdsquestiontagging - are excluded from ranking at every tier; left in, they outrank real trees for grade-10 students."),
+small("85.5% of conversations sit in the student's own grade, 8.7% above it, 5.8% below. A candidate list bound to the profile discards that 14.5%. The five unnamed trees - 2,202 nodes with no entry in cmdsquestiontagging - are excluded from ranking at every tier."),
 pb(),
 
-/* --------------------------------- 5 --------------------------------- */
-h1("5.  Stage 3 — Topic"),
-p("Once per question, skipped when stage 2 rejected. The node list is that chapter's nodes across ", ["every", false, true], " tree that carries it, de-duplicated on name with the student's preferred tree first. Median 8 nodes, maximum 55."),
+h2("5.2  Call 4 — Topic"),
+p("Only the nodes inside the chapters chosen at call 3, across every tree that carries each chapter, de-duplicated on name. A median of 8, 55 at most."),
 gap(),
 h3("Prompt"),
-...code(P3.replace(/\{nodes\}/, "67d2a0221d8bb4fb6545d4be | Discriminant and Nature of Roots [TOPIC]\n67d2a0231d8bb4fb6545d4c1 | Word Problems based on Quadratic equations [TOPIC]\n  ... median 8 nodes")),
+...code(P3.replace(/\{nodes\}/, "Mathematics > Quadratic Equations  [10_CBSE / 11_12_JEE]:\n  67d2a0221d8bb4fb6545d4be | Discriminant and Nature of Roots [TOPIC]\n  67d2a0231d8bb4fb6545d4c1 | Word Problems based on Quadratic equations [TOPIC]\n  ... median 8 nodes")),
 gap(),
-h3("Output parameters"),
-table(["Field", "Type", "Values"],
-  [["topic_id", "string", "24-character node id; empty on CHAPTER_ONLY"],
-   ["topic", "string", "the exact node name, or CHAPTER_ONLY"],
-   ["topic_level", "enum", "TOPIC | SUB_TOPIC | empty"],
-   ["confidence", "enum", "HIGH | MED | LOW"]],
-  [1700, 1700, 5960], { mono: [0, 1] }),
+table(["Output parameter", "Meaning"],
+  [["topics[].chapter", "which of the chosen chapters this node sits in"],
+   ["topics[].topic_id", "24-character node id; empty on CHAPTER_ONLY"],
+   ["topics[].topic", "the exact node name, or CHAPTER_ONLY"],
+   ["topics[].topic_level", "TOPIC | SUB_TOPIC | empty"],
+   ["topics[].confidence", "HIGH | MED | LOW"]],
+  [2600, 6760], { mono: [0] }),
 gap(),
-p(["Two reasons this stage returns an id and searches across trees.", true], " Fifty-two node rows are duplicated inside fifteen chapters, so a name alone cannot be resolved to one node. And committing to a tree before the node is known puts content in the wrong place: a grade-11 JEE student's class-10 word problem resolved to 11_12_JEE, whose Quadratic Equations chapter has no word-problem node, so it landed on \"Miscellaneous examples\". With the union list, the chosen node names the tree - 10_CBSE, Word Problems based on Quadratic equations."),
-p(["A chapter whose nodes were never fetched says so.", true], " The node index covers the chapters expanded so far. Returning CHAPTER_ONLY silently would read as \"no node fits\" when it means \"never fetched\", so those are counted, named, and written to out4/chapters_needing_nodes.json to feed the node query."),
+p(["Two reasons this call returns an id and searches across trees.", true], " Fifty-two node rows are duplicated inside fifteen chapters, so a name alone cannot be resolved. And committing to a tree before the node is known puts content in the wrong place: a grade-11 JEE student's class-10 word problem resolved to 11_12_JEE, whose Quadratic Equations chapter has no word-problem node, so it landed on \"Miscellaneous examples\". With the union list the chosen node names the tree."),
+p(["A chapter whose nodes were never fetched says so.", true], " Returning CHAPTER_ONLY silently would read as \"no node fits\" when it means \"never fetched\", so those are counted, named, and written to out4/chapters_needing_nodes.json."),
 pb(),
-
 /* --------------------------------- 6 --------------------------------- */
-h1("6.  Stage 4 — Output parameters"),
+h1("6.  Output parameters"),
 p("Two files, because two consumers want different shapes."),
 gap(),
 h2("6.1  segments.jsonl — one row per question"),
@@ -440,7 +478,8 @@ h3("Running it"),
 "python cascade.py --cids out4/sample20.json # a named subset",
 "python cascade.py                           # all of them",
 "",
-"# provider: ANTHROPIC_API_KEY or GEMINI_API_KEY; model via CASCADE_MODEL.",
+"# GEMINI_API_KEY is required. CASCADE_SUMMARY_MODEL drives call 1,",
+"# CASCADE_MODEL the other three.",
 "# replies are cached by prompt hash, so a crashed run resumes instead of re-paying.",
 ].join("\n")),
 

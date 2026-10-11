@@ -86,47 +86,50 @@ cache still hits.
 
 ## Why four flat calls, and not one call per question
 
-Two methods were built and scored against each other on the same 20 conversations
-(`python ab_compare.py`):
+An earlier design split each conversation into its separate questions and tagged
+each one, costing `1 + 2n` calls - 51 on the longest conversation of the day. The
+shipped design summarises once and narrows three times, costing a flat 4 whatever
+the conversation's length.
 
-    A  per-question   split into questions, then tag each one     1 + 2n calls
-    B  four flat      summarise once, then subject/chapter/topic  4 calls
+Both were built and scored against each other on the same 20 conversations with
+`ab_compare.py`. They agreed on the subject every time, produced an **identical set
+of chapters** on every conversation, and differed on one primary tag - a six-chapter
+revision sweep where both list the same six and the lead is arbitrary either way.
+The flat version did that for 2.1x fewer calls.
 
-                                        A        B
-      model calls                     172       80
-      calls per conversation          8.6      4.0
-      tagged to a chapter              18       18
-      distinct topics recorded         45       47
+**That comparison has since been discarded.** Both arms were answered by hand rather
+than by a model, and those answers have been removed from this repository along with
+every result derived from them. `ab_compare.py` remains and scores any two runs; the
+numbers have to be produced again by Gemini before they mean anything.
 
-      same subject                  18/18     100%
-      same primary chapter          17/18      94%
-      chapter-set overlap (mean)              1.00
-      topic-set overlap (mean)                0.94
-
-**B ships.** The two methods identified the *identical set of chapters* on every
-conversation - an overlap of 1.00, not an average of near misses. The single
-primary-tag difference is `45759289`, a six-chapter revision sweep where no chapter
-dominates and both methods list the same six; which one leads is arbitrary either
-way. B does that for 2.1x fewer calls, and does it in a flat 4 per conversation
-whether the conversation ran one turn or forty, where A ranged from 3 to 51.
-
-The count of distinct things each method found also matched exactly - 1 against 1,
-4 against 4, 16 against 16, 25 against 25. One rich summary carried a 40-exchange,
-two-chapter revision session without losing a topic.
-
-**What this does not say.** Agreement is not accuracy: neither arm has been scored
-against a human-labelled reference, so this settles which method to ship, not
-whether either is right. And both arms were answered by a human following the
-prompts, because no API key was available - so it shows the architecture carries
-the information, not that a given model writes a summary that rich unprompted.
-That is the one experiment still worth running, and `ab_compare.py` scores it the
-moment both arms have been run with a key.
-
-A's implementation is in git history at `892c6dc` if the summary ever proves too
-thin in practice:
+The per-question implementation is in git history at `892c6dc` if the summary ever
+proves too thin in practice:
 
 ```bash
 git checkout 892c6dc -- cascade.py prompts/
+```
+
+## No results are checked in
+
+This repository contains the pipeline, not a run of it. There is no cached model
+output, no tagged CSV and no built document, because nothing here has yet been
+produced by the model that will run it.
+
+To produce a run:
+
+```bash
+export GEMINI_API_KEY=...
+python cascade.py --cids out4/sample20.json   # 20 conversations, 80 calls
+python cascade.py                             # the whole day, 1,084 calls
+```
+
+Then the reporting tools work off that run:
+
+```bash
+python out4/build_worked.py            # five conversations, every call, real values
+python out4/make_walkthrough.py        # the same five as a CSV
+node make_cascade_doc.js               # the methodology document
+python ab_compare.py                   # if two runs exist to compare
 ```
 
 ## Design decisions worth knowing

@@ -612,7 +612,24 @@ def run(cids, records):
         print(f"\n{waiting} conversations waiting. {CALLS['pending']} prompts written to "
               f"out4/pending/ - answer them into out4/cache.json (key = filename) and run again.")
 
+    # A partial run must not silently replace a full one's outputs. Writing
+    # --only one-conversation results over a 271-conversation file looks like
+    # success and loses the run.
     os.makedirs(OUT, exist_ok=True)
+    existing = P("out4/topic_mapping.csv")
+    if os.path.exists(existing) and not os.environ.get("CASCADE_OVERWRITE"):
+        was = sum(1 for _ in csv.DictReader(open(existing, encoding="utf-8")))
+        if was > len(rows):
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            keep = P("out4", f"run-{stamp}")
+            os.makedirs(keep, exist_ok=True)
+            for name in ("topic_mapping.csv", "summaries.jsonl", "topics.jsonl"):
+                if os.path.exists(P("out4", name)):
+                    os.replace(P("out4", name), os.path.join(keep, name))
+            print(f"\n  the previous run covered {was} conversations and this one covers "
+                  f"{len(rows)};\n  it has been moved to out4/run-{stamp}/ rather than "
+                  f"overwritten.\n  Set CASCADE_OVERWRITE=1 to replace it instead.")
+
     for name, data in (("summaries.jsonl", summaries), ("topics.jsonl", tags)):
         with open(P("out4", name), "w", encoding="utf-8") as f:
             for d in data:
